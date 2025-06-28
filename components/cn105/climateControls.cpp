@@ -16,7 +16,7 @@ void CN105Climate::checkPendingWantedSettings() {
         return;
     }
 
-    ESP_LOGI(LOG_ACTION_EVT_TAG, "checkPendingWantedSettings - wanted settings have changed, sending them to the heatpump...");
+    ESP_LOGD(LOG_ACTION_EVT_TAG, "checkPendingWantedSettings - wanted settings have changed, sending them to the heatpump...");
     this->sendWantedSettings();
 }
 
@@ -25,7 +25,7 @@ void CN105Climate::checkPendingWantedRunStates() {
     if (!(this->wantedRunStates.hasChanged) || (now - this->wantedRunStates.lastChange < this->debounce_delay_)) {
         return;
     }
-    ESP_LOGI(LOG_ACTION_EVT_TAG, "checkPendingWantedRunStates - wanted run states have changed, sending them to the heatpump...");
+    ESP_LOGD(LOG_ACTION_EVT_TAG, "checkPendingWantedRunStates - wanted run states have changed, sending them to the heatpump...");
     this->sendWantedRunStates();
 }
 
