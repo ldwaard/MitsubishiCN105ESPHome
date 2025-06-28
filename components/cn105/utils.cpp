@@ -238,7 +238,7 @@ void CN105Climate::debugClimate(const char* settingName) {
 
 void CN105Climate::debugSettings(const char* settingName, heatpumpSettings& settings) {
 #ifdef USE_ESP32
-    ESP_LOGD(LOG_SETTINGS_TAG, "[%s]-> [power: %s, target °C: %.1f, mode: %s, fan: %s, vane: %s, wvane: %s]",
+    ESP_LOGI(LOG_SETTINGS_TAG, "[%s]-> [power: %s, target °C: %.1f, mode: %s, fan: %s, vane: %s, wvane: %s]",
         getIfNotNull(settingName, "unnamed"),
         getIfNotNull(settings.power, "-"),
         settings.temperature,
@@ -248,7 +248,7 @@ void CN105Climate::debugSettings(const char* settingName, heatpumpSettings& sett
         getIfNotNull(settings.wideVane, "-")
     );
 #else
-    ESP_LOGD(LOG_SETTINGS_TAG, "[%-*s]-> [power: %-*s, target °C: %.1f, mode: %-*s, fan: %-*s, vane: %-*s, wvane: %-*s]",
+    ESP_LOGI(LOG_SETTINGS_TAG, "[%-*s]-> [power: %-*s, target °C: %.1f, mode: %-*s, fan: %-*s, vane: %-*s, wvane: %-*s]",
         15, getIfNotNull(settingName, "unnamed"),
         3, getIfNotNull(settings.power, "-"),
         settings.temperature,

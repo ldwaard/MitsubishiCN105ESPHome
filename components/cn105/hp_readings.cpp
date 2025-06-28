@@ -497,8 +497,8 @@ void CN105Climate::processCommand() {
 void CN105Climate::statusChanged(heatpumpStatus status) {
 
     if (status != currentStatus) {
-        this->debugStatus("received", status);
         this->debugStatus("current", currentStatus);
+        this->debugStatus("received", status);
 
 
         this->currentStatus.operating = status.operating;
@@ -598,7 +598,7 @@ void CN105Climate::heatpumpUpdate(heatpumpSettings& settings) {
 
 void CN105Climate::checkVaneSettings(heatpumpSettings& settings, bool updateCurrentSettings) {
     if (this->hasChanged(currentSettings.vane, settings.vane, "vane")) {    // widevane setting change ?
-        ESP_LOGI(LOG_SETTINGS_TAG, "vane setting changed");
+        ESP_LOGI(TAG, "vane setting changed");
 
         //this->debugSettings("settings", settings);
 
