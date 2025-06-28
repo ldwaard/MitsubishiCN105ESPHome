@@ -16,7 +16,7 @@ void CN105Climate::checkPendingWantedSettings() {
         return;
     }
 
-    ESP_LOGI(LOG_ACTION_EVT_TAG, "checkPendingWantedSettings - wanted settings have changed, sending them to the heatpump...");
+    ESP_LOGD(LOG_ACTION_EVT_TAG, "checkPendingWantedSettings - wanted settings have changed, sending them to the heatpump...");
     this->sendWantedSettings();
 }
 
@@ -25,7 +25,7 @@ void CN105Climate::checkPendingWantedRunStates() {
     if (!(this->wantedRunStates.hasChanged) || (now - this->wantedRunStates.lastChange < this->debounce_delay_)) {
         return;
     }
-    ESP_LOGI(LOG_ACTION_EVT_TAG, "checkPendingWantedRunStates - wanted run states have changed, sending them to the heatpump...");
+    ESP_LOGD(LOG_ACTION_EVT_TAG, "checkPendingWantedRunStates - wanted run states have changed, sending them to the heatpump...");
     this->sendWantedRunStates();
 }
 
@@ -135,14 +135,16 @@ void CN105Climate::controlDelegate(const esphome::climate::ClimateCall& call) {
                     }
                 }
             }
-            ESP_LOGI("control", "Setting heatpump low temp : %.1f - high temp : %.1f", this->target_temperature_low, this->target_temperature_high);
+            ESP_LOGI("control", "setting heatpump low temp : %.1f - high temp : %.1f", this->target_temperature_low, this->target_temperature_high);
             // Répercuter immédiatement les nouvelles bornes dans HA pour éviter l'écrasement visuel par une lecture suivante
             this->publish_state();
         } else {
             // Single setpoint : gérer target_temperature
             if (call.get_target_temperature().has_value()) {
                 this->target_temperature = *call.get_target_temperature();
-                ESP_LOGI("control", "Setting heatpump setpoint : %.1f", this->target_temperature);
+                if (this->target_temperature != this->currentSettings.temperature) {
+                    ESP_LOGI("control", "setting heatpump setpoint : %.1f", this->target_temperature);
+                }
             }
         }
         updated = true;
@@ -326,7 +328,7 @@ void CN105Climate::controlTemperature() {
 
     setting = this->calculateTemperatureSetting(setting);
     this->wantedSettings.temperature = setting;
-    ESP_LOGI("control", "setting wanted temperature to %.1f", setting);
+    ESP_LOGD("control", "setting wanted temperature to %.1f", setting);
 }
 
 
@@ -334,24 +336,36 @@ void CN105Climate::controlTemperature() {
 void CN105Climate::controlMode() {
     switch (this->mode) {
     case climate::CLIMATE_MODE_COOL:
-        ESP_LOGI("control", "changing mode to COOL");
+        if (strcmp(this->currentSettings.mode, "COOL") != 0 ||
+            strcmp(this->currentSettings.power, "ON") != 0) {
+            ESP_LOGI("control", "changing mode to COOL");
+        }
         this->setModeSetting("COOL");
         this->setPowerSetting("ON");
         break;
     case climate::CLIMATE_MODE_HEAT:
-        ESP_LOGI("control", "changing mode to HEAT");
+        if (strcmp(this->currentSettings.mode, "HEAT") != 0 ||
+            strcmp(this->currentSettings.power, "ON") != 0) {
+            ESP_LOGI("control", "changing mode to HEAT");
+        }
         this->setModeSetting("HEAT");
         this->setPowerSetting("ON");
 
         break;
     case climate::CLIMATE_MODE_DRY:
-        ESP_LOGI("control", "changing mode to DRY");
+        if (strcmp(this->currentSettings.mode, "DRY") != 0 ||
+            strcmp(this->currentSettings.power, "ON") != 0) {
+            ESP_LOGI("control", "changing mode to DRY");
+        }
         this->setModeSetting("DRY");
         this->setPowerSetting("ON");
 
         break;
     case climate::CLIMATE_MODE_AUTO:
-        ESP_LOGI("control", "changing mode to AUTO");
+        if (strcmp(this->currentSettings.mode, "AUTO") != 0 ||
+            strcmp(this->currentSettings.power, "ON") != 0) {
+            ESP_LOGI("control", "changing mode to AUTO");
+        }
         this->setModeSetting("AUTO");
         this->setPowerSetting("ON");
         // Initialiser les températures low/high si on vient d'un mode à consigne unique
@@ -365,12 +379,17 @@ void CN105Climate::controlMode() {
         this->publish_state();
         break;
     case climate::CLIMATE_MODE_FAN_ONLY:
-        ESP_LOGI("control", "changing mode to FAN_ONLY");
+        if (strcmp(this->currentSettings.mode, "FAN") != 0 ||
+            strcmp(this->currentSettings.power, "ON") != 0) {
+            ESP_LOGI("control", "changing mode to FAN_ONLY");
+        }
         this->setModeSetting("FAN");
         this->setPowerSetting("ON");
         break;
     case climate::CLIMATE_MODE_OFF:
-        ESP_LOGI("control", "changing mode to OFF");
+        if (strcmp(this->currentSettings.power, "OFF") != 0) {
+            ESP_LOGI("control", "changing mode to OFF");
+        }
         this->setPowerSetting("OFF");
         break;
     default:
