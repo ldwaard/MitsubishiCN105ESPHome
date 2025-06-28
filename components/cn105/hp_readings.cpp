@@ -160,7 +160,6 @@ void CN105Climate::getPowerFromResponsePacket() {
     ESP_LOGD("Decoder", "[Sub Mode  : %s]", receivedSettings.sub_mode);
     ESP_LOGD("Decoder", "[Auto Mode Sub Mode  : %s]", receivedSettings.auto_sub_mode);
 
-    //this->heatpumpUpdate(receivedSettings);
     if (this->stage_sensor_ != nullptr) {
         if (!this->currentSettings.stage || strcmp(receivedSettings.stage, this->currentSettings.stage) != 0) {
             this->currentSettings.stage = receivedSettings.stage;
@@ -551,8 +550,8 @@ void CN105Climate::processCommand() {
 void CN105Climate::statusChanged(heatpumpStatus status) {
 
     if (status != currentStatus) {
-        this->debugStatus("received", status);
         this->debugStatus("current", currentStatus);
+        this->debugStatus("received", status);
 
 
         this->currentStatus.operating = status.operating;
@@ -630,12 +629,12 @@ void CN105Climate::heatpumpUpdate(heatpumpSettings& settings) {
     // settings correponds to current settings
     ESP_LOGV(LOG_SETTINGS_TAG, "Settings received");
 
-    this->debugSettings("current", this->currentSettings);
-    this->debugSettings("received", settings);
-    this->debugSettings("wanted", this->wantedSettings);
-    this->debugClimate("climate");
-
     if (this->currentSettings != settings) {
+        this->debugSettings("current", this->currentSettings);
+        this->debugSettings("received", settings);
+        this->debugSettings("wanted", this->wantedSettings);
+        this->debugClimate("climate");
+
         ESP_LOGD(LOG_SETTINGS_TAG, "Settings changed, updating HA states");
         this->publishStateToHA(settings);
     }
