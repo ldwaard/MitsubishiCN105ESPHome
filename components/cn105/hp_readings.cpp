@@ -337,7 +337,7 @@ void CN105Climate::getOperatingAndCompressorFreqFromResponsePacket() {
     // reset counter (because a reply indicates it is connected)
     this->nonResponseCounter = 0;
     receivedStatus.operating = data[4];
-    receivedStatus.compressorFrequency = data[3];
+    receivedStatus.compressorFrequency = (data[4]) ? data[3] : 0;
     receivedStatus.inputPower = (data[5] << 8) | data[6];
     receivedStatus.kWh = float((data[7] << 8) | data[8]) / 10;
 
