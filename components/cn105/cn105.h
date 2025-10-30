@@ -23,6 +23,7 @@
 #include "error_code_sensor.h"
 #include "remote_temp_source_info.h"
 #include "hvac_option_switch.h"
+#include "pac_passthrough_switch.h"
 #include "hardware_setting_select.h"
 #include "localization.h"
 #include "info_request.h"
@@ -116,6 +117,10 @@ namespace esphome {
         void set_remote_temperature_control_sensor(esphome::binary_sensor::BinarySensor* sensor);
         void set_remote_temperature_margin(float margin);
 
+        void set_pac_uart(uart::UARTComponent* pac_uart);
+        void set_pac_passthrough_switch(PacPassthroughSwitch* sw);
+        void set_pac_passthrough_sensor(esphome::binary_sensor::BinarySensor* sensor);
+
         //sensor::Sensor* compressor_frequency_sensor;
         binary_sensor::BinarySensor* iSee_sensor_ = nullptr;
         binary_sensor::BinarySensor* remote_temp_sensor_ = nullptr;
@@ -140,6 +145,9 @@ namespace esphome {
         uint32_t hardware_settings_interval_ms_{ 86400000 };  // Default 24h
         bool compressor_frequency_report_when_idle_{ false };
         bool compressor_frequency_report_when_idle_warning_shown_{ false };
+        PacPassthroughSwitch* pac_passthrough_switch_ = nullptr;
+        binary_sensor::BinarySensor* pac_passthrough_sensor_ = nullptr;
+        void publishPacPassthroughState();
 
         // The value of the code and value for the functions set.
         int functions_code_;
@@ -203,6 +211,7 @@ namespace esphome {
         void set_baud_rate(int baud_rate);
         void set_tx_rx_pins(int tx_pin, int rx_pin);
         void set_uart_port(int uart_port) { this->uart_port_ = uart_port; }
+        // void set_pac_uart_port(int pac_uart_port) { this->pac_uart_port_ = pac_uart_port; }
         //void set_wifi_connected_state(bool state);
         void setupUART();
         void disconnectUART();
@@ -334,6 +343,8 @@ namespace esphome {
 #endif
 #endif
 
+        void set_pac_passthrough_timeout(uint32_t ms) { this->pac_passthrough_timeout_ms_ = ms; }
+        bool is_pac_passthrough() const { return this->pac_passthrough_active_; }
 
     protected:
         // HeatPump object using the underlying Arduino library.
@@ -347,10 +358,15 @@ namespace esphome {
             return this->parent_;
         }
 
+        //Accessor method for the PAC UART pointer
+        uart::UARTComponent* get_pac_uart_() {
+            return this->pac_uart_;
+        }
+
         bool processInput(void);
         void processDataPacket();
         void getErrorInfoFromResponsePacket();
-    void getDataFromResponsePacket();
+        void getDataFromResponsePacket();
         void getAutoModeStateFromResponsePacket(); //NET added
         void getPowerFromResponsePacket(); //NET added
         void getSettingsFromResponsePacket();
@@ -362,6 +378,21 @@ namespace esphome {
         void processCommand();
 
         uint8_t checkSum(uint8_t bytes[], int len);
+
+        bool processInputPac(void);
+        void processPacFrame();
+        void updatePacPassthroughState();
+        void enterPacPassthrough();
+        void exitPacPassthrough();
+        void cacheInfoResponse();
+        void sendPacFrame(uint8_t cmd, const uint8_t* payload, uint8_t len);
+        void replyPacConnect(uint8_t cmd);
+        void replyCachedInfo(uint8_t code);
+        void replyPacSetAck(uint8_t type);
+        void forwardPacFrameToHp();
+        void relayHpFrameToPac();
+        void logPacSet(const uint8_t* data, int len);
+        void checkPacPassthroughHealth();
 
         const char* getModeSetting();
         const char* getPowerSetting();
@@ -482,7 +513,6 @@ namespace esphome {
 
         unsigned long lastResponseMs;
 
-
         uint32_t remote_temp_timeout_;
         uint32_t remote_temp_keepalive_interval_ms_ = DEFAULT_REMOTE_TEMP_KEEPALIVE_INTERVAL_MS;
         bool remote_temp_keepalive_active_ = false;
@@ -496,7 +526,7 @@ namespace esphome {
         int tx_pin_ = -1;
         int rx_pin_ = -1;
 
-
+        uart::UARTComponent* pac_uart_ = nullptr;
 
         //HardwareSerial* _HardSerial{ nullptr };
         unsigned long lastSend;
@@ -572,5 +602,26 @@ namespace esphome {
         bool setpoint_pref_ready_ = false;
         void restore_setpoint_state_();
         void save_setpoint_state_();
+
+        cn105_protocol::FrameParser pac_parser_;
+
+        struct PacCacheEntry {
+            bool valid = false;
+            uint8_t code = 0;
+            uint8_t len = 0;
+            uint8_t data[32] = {};
+            uint32_t ms = 0;
+        };
+        PacCacheEntry pac_cache_[8];
+
+        bool pac_passthrough_active_ = false;
+        bool pac_passthrough_forced_ = false;
+        uint32_t pac_passthrough_timeout_ms_ = 60000;
+        bool ha_ok_ = false;
+        uint32_t ha_change_ms_ = 0;
+        bool pac_awaiting_ = false;
+        uint32_t pac_forward_ms_ = 0;
+        uint8_t pac_unanswered_forward_count_ = 0;
+
     };
 }

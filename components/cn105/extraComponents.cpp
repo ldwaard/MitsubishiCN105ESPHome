@@ -303,3 +303,21 @@ void CN105Climate::add_hardware_setting(HardwareSettingSelect* setting) {
         this->isSetFunctions_ = true;
         });
 }
+
+void CN105Climate::set_pac_uart(uart::UARTComponent* pac_uart) {
+    this->pac_uart_ = pac_uart;
+}
+
+void CN105Climate::set_pac_passthrough_switch(PacPassthroughSwitch* sw) {
+    this->pac_passthrough_switch_ = sw;
+    this->pac_passthrough_switch_->publish_state(false);
+    this->pac_passthrough_switch_->setCallbackFunction([this](bool state) {
+        this->pac_passthrough_forced_ = state;
+        ESP_LOGI("PAC", "Forced PAC passthrough %s", state ? "requested" : "released");
+    });
+}
+
+void CN105Climate::set_pac_passthrough_sensor(esphome::binary_sensor::BinarySensor* sensor) {
+    this->pac_passthrough_sensor_ = sensor;
+    sensor->publish_initial_state(false);
+}

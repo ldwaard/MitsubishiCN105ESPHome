@@ -515,11 +515,22 @@ void CN105Climate::processCommand() {
     switch (this->parser_.command()) {
     case 0x61:  /* last update was successful */
         this->hpPacketDebug(this->parser_.raw(), this->parser_.frame_size(), LOG_ACK);
-        this->updateSuccess();
+        if (this->is_pac_passthrough()) {
+            this->relayHpFrameToPac();
+        } else {
+            this->updateSuccess();
+        }
         break;
 
     case 0x62:  /* packet contains data (room °C, settings, timer, status, or functions...)*/
-        this->getDataFromResponsePacket();
+        // keep the last good reply per request code
+        this->cacheInfoResponse();
+        if (this->is_pac_passthrough()) {
+            // bypass the scheduler so it doesn't fire its own next request
+            this->relayHpFrameToPac();
+        } else {
+            this->getDataFromResponsePacket();
+        }
         break;
     case 0x7a:  // Connection success (User / standard)
     case 0x7b:  // Connection success (Installer / extended)
