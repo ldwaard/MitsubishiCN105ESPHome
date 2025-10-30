@@ -153,6 +153,8 @@ CONF_REPORT_WHEN_IDLE = "report_when_idle"
 CONF_DUAL_SETPOINT = "dual_setpoint"
 CONF_RESTORE_SETPOINTS = "restore_setpoints"
 
+CONF_UART_PAC = "uart_pac"
+
 DEFAULT_CLIMATE_MODES = ["AUTO", "COOL", "HEAT", "DRY", "FAN_ONLY", "HEAT_COOL"]
 DEFAULT_FAN_MODES = ["AUTO", "MIDDLE", "QUIET", "LOW", "MEDIUM", "HIGH"]
 DEFAULT_SWING_MODES = ["OFF", "VERTICAL", "HORIZONTAL", "BOTH"]
@@ -498,6 +500,7 @@ CONFIG_SCHEMA = (
                     ),
                 }
             ),
+            cv.Optional(CONF_UART_PAC): cv.use_id(uart.UARTComponent),
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
@@ -788,6 +791,14 @@ def to_code(config):
         hp_connection_sensor_ = yield sensor.new_sensor(conf)
         yield cg.register_component(hp_connection_sensor_, conf)
         cg.add(var.set_hp_uptime_connection_sensor(hp_connection_sensor_))
+
+    if CONF_UART_PAC in config:
+        conf = config[CONF_UART_PAC]
+        pac_uart = yield cg.get_variable(conf)
+        cg.add(pac_uart.set_data_bits(8))
+        cg.add(pac_uart.set_parity(UARTParityOptions.UART_CONFIG_PARITY_EVEN))
+        cg.add(pac_uart.set_stop_bits(1))
+        cg.add(var.set_pac_uart(pac_uart))
 
     if CONF_HARDWARE_SETTINGS in config:
         hw_config = config[CONF_HARDWARE_SETTINGS]
