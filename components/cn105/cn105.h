@@ -67,6 +67,8 @@ namespace esphome {
         void set_auto_sub_mode_sensor(esphome::text_sensor::TextSensor* Auto_sub_mode_sensor);
         void set_hp_uptime_connection_sensor(uptime::HpUpTimeConnectionSensor* hp_up_connection_sensor);
 
+        void set_pac_uart(uart::UARTComponent* pac_uart);
+
         //sensor::Sensor* compressor_frequency_sensor;
         binary_sensor::BinarySensor* iSee_sensor_ = nullptr;
         text_sensor::TextSensor* stage_sensor_{ nullptr }; // to save ref if needed
@@ -110,6 +112,8 @@ namespace esphome {
 
         // sensor to monitor heatpump connection time
         uptime::HpUpTimeConnectionSensor* hp_uptime_connection_sensor_ = nullptr;
+
+        uart::UARTComponent* pac_uart_ = nullptr;
 
         float get_compressor_frequency();
         float get_input_power();
@@ -232,6 +236,11 @@ namespace esphome {
             return this->parent_;
         }
 
+        //Accessor method for the PAC UART pointer
+        uart::UARTComponent* get_pac_uart_() {
+            return this->pac_uart_;
+        }
+
         bool processInput(void);
         void parse(uint8_t inputData);
         void checkHeader(uint8_t inputData);
@@ -249,6 +258,13 @@ namespace esphome {
         void processCommand();
         bool checkSum();
         uint8_t checkSum(uint8_t bytes[], int len);
+
+        bool processInputPac(void);
+        void parsePac(uint8_t inputData);
+        void checkHeaderPac(uint8_t inputData);
+        void initBytePointerPac();
+        void processDataPacketPac();
+        bool checkSumPac();
 
         const char* getModeSetting();
         const char* getPowerSetting();
@@ -345,6 +361,7 @@ namespace esphome {
 
         unsigned long lastResponseMs;
 
+        unsigned long lastResponseMsPac;
 
         uint32_t remote_temp_timeout_;
         uint32_t debounce_delay_;
@@ -362,6 +379,9 @@ namespace esphome {
 
         uint8_t storedInputData[MAX_DATA_BYTES]; // multi-byte data
         uint8_t* data;
+
+        uint8_t storedInputDataPac[MAX_DATA_BYTES]; // multi-byte data
+        uint8_t* dataPac;
 
         // initialise to all off, then it will update shortly after connect;
         heatpumpStatus currentStatus{ 0, 0, false, {TIMER_MODE_MAP[0], 0, 0, 0, 0}, 0, 0, 0, 0 };
@@ -387,6 +407,11 @@ namespace esphome {
         int bytesRead = 0;
         int dataLength = 0;
         uint8_t command = 0;
+
+        bool foundStartPac = false;
+        int bytesReadPac = 0;
+        int dataLengthPac = 0;
+        uint8_t commandPac = 0;
 
         // Ensure dual setpoints are valid (no NaN, enforce spread in AUTO)
         void sanitizeDualSetpoints();

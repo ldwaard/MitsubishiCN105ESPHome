@@ -209,3 +209,7 @@ void CN105Climate::set_use_fahrenheit_support_mode(bool value) {
     this->fahrenheitSupport_.setUseFahrenheitSupportMode(value);
     ESP_LOGI(TAG, "Fahrenheit compatibility mode enabled: %s", value ? "true" : "false");
 }
+
+void CN105Climate::set_pac_uart(uart::UARTComponent* pac_uart) {
+    this->pac_uart_ = pac_uart;
+}
