@@ -60,6 +60,10 @@ void CN105Climate::loop() {
     // Bootstrap connection CN105 (UART + CONNECT) from loop()
     this->maybe_start_connection_();
 
+    // always drain the PAC UART, even before the HP is connected
+    this->processInputPac();
+    this->updatePacPassthroughState();
+
     // Inform user about report_when_idle property if not configured, but only if compressor frequency sensor is configured.
     // Wait for UART to be ready so log messages appear via OTA update.
     if (!this->compressor_frequency_report_when_idle_warning_shown_ &&
@@ -74,37 +78,37 @@ void CN105Climate::loop() {
 
     // As long as the connection is not successful, we do not launch ANY cycle/write (otherwise it short-circuits the delay).
     // We still continue to read/process the input in order to detect 0x7A/0x7B (connection success).
-    const bool can_talk_to_hp = this->isHeatpumpConnected();
+    // In PAC passthrough the upstream controller owns the bus: no polling, no writes.
+    const bool can_talk_to_hp = this->isHeatpumpConnected() && !this->is_pac_passthrough();
 
     if (!this->processInput()) {                                            // if we don't get any input: no read op
-        if (!can_talk_to_hp) {
-            return;
-        }
-        if ((this->wantedSettings.hasChanged) && (!this->loopCycle.isCycleRunning())) {
-            this->checkPendingWantedSettings();
-        } else if ((this->wantedRunStates.hasChanged) && (!this->loopCycle.isCycleRunning())) {
-            this->checkPendingWantedRunStates();
-        } else if ((this->isSetFunctions_) && (!this->loopCycle.isCycleRunning())) {
-            this->isSetFunctions_ = false;
-            this->setFunctions(this->functions);
-            // Also request to get function settings from heat pump to update UI with latest values.
-            this->isGetFunctions_ = true;
-        } else {
-            if (this->loopCycle.isCycleRunning()) {                         // if we are  running an update cycle
-                this->loopCycle.checkTimeout(this->update_interval_);
-            } else { // we are not running a cycle
-                if (this->loopCycle.hasUpdateIntervalPassed(this->get_update_interval())) {
-                    if (this->isGetFunctions_) {
-                        // Reactivate requests 0x20/0x22 and bypass interval timers.
-                        // This must be done before starting a new cycle to prevent a race hazard of
-                        // request 0x22 occurring before request 0x20.
-                        this->scheduler_.enable_request(0x20);
-                        this->scheduler_.timer_bypass(0x20);
-                        this->scheduler_.enable_request(0x22);
-                        this->scheduler_.timer_bypass(0x22);
-                        this->isGetFunctions_ = false;
+        if (can_talk_to_hp) {
+            if ((this->wantedSettings.hasChanged) && (!this->loopCycle.isCycleRunning())) {
+                this->checkPendingWantedSettings();
+            } else if ((this->wantedRunStates.hasChanged) && (!this->loopCycle.isCycleRunning())) {
+                this->checkPendingWantedRunStates();
+            } else if ((this->isSetFunctions_) && (!this->loopCycle.isCycleRunning())) {
+                this->isSetFunctions_ = false;
+                this->setFunctions(this->functions);
+                // Also request to get function settings from heat pump to update UI with latest values.
+                this->isGetFunctions_ = true;
+            } else {
+                if (this->loopCycle.isCycleRunning()) {                         // if we are  running an update cycle
+                    this->loopCycle.checkTimeout(this->update_interval_);
+                } else { // we are not running a cycle
+                    if (this->loopCycle.hasUpdateIntervalPassed(this->get_update_interval())) {
+                        if (this->isGetFunctions_) {
+                            // Reactivate requests 0x20/0x22 and bypass interval timers.
+                            // This must be done before starting a new cycle to prevent a race hazard of
+                            // request 0x22 occurring before request 0x20.
+                            this->scheduler_.enable_request(0x20);
+                            this->scheduler_.timer_bypass(0x20);
+                            this->scheduler_.enable_request(0x22);
+                            this->scheduler_.timer_bypass(0x22);
+                            this->isGetFunctions_ = false;
+                        }
+                        this->buildAndSendRequestsInfoPackets();            // initiate an update cycle with this->cycleStarted();
                     }
-                    this->buildAndSendRequestsInfoPackets();            // initiate an update cycle with this->cycleStarted();
                 }
             }
         }

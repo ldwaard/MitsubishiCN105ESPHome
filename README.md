@@ -27,6 +27,7 @@ The benefits include fully local control over your heat pump system, without rel
 - Enhanced UART communication with the Heatpump to eliminate delays in the ESPHome loop(), which was a limitation of the original [SwiCago library](https://github.com/SwiCago/HeatPump).
 - Byte-by-byte reading within the loop() function ensures no data loss or lag, as the component continuously reads without blocking ESPHome.
 - UART writes are followed by non-blocking reads. The responses are accumulated byte-by-byte in the loop() method and processed when complete, allowing command stacking without delays for a more responsive UI.
+- Optional PAC passthrough (ESP32 only): sit between the heat pump and an existing CN105 controller, and hand the bus back to that controller if Home Assistant becomes unavailable. See [docs/pac-passthrough.md](docs/pac-passthrough.md).
 
 ### Retained Features
 
@@ -1167,6 +1168,39 @@ climate:
             1: "ON (Default)"
             2: "OFF"
 ```
+
+## PAC passthrough (dual UART)
+
+On ESP32 boards, the ESP can sit **between the heat pump and an existing CN105 controller** (for example a wired thermostat). Normally Home Assistant, through the ESP, controls the heat pump. If Home Assistant becomes unavailable, the ESP hands the bus to the original controller so the unit keeps working, then takes control back and resynchronises when Home Assistant returns.
+
+This needs a second UART, a second level shifter, and a few extra options under the `cn105` climate platform:
+
+```yaml
+uart:
+  - id: HP_UART
+    baud_rate: 2400
+    tx_pin: GPIO21
+    rx_pin: GPIO25
+  - id: PAC_UART
+    baud_rate: 2400
+    tx_pin: GPIO19
+    rx_pin: GPIO22
+
+climate:
+  - platform: cn105
+    id: hp
+    name: Climate Control
+    uart_id: HP_UART
+    uart_pac: PAC_UART
+    pac_passthrough_timeout: 60s
+    pac_passthrough_switch:
+      name: PAC Passthrough
+    pac_passthrough_sensor:
+      name: PAC Passthrough Active
+```
+
+> [!NOTE]
+> See [docs/pac-passthrough.md](docs/pac-passthrough.md) for wiring, all options, the Home Assistant heartbeat setup, behavior in each mode, and troubleshooting.
 
 ## Experimental Features
 

@@ -42,6 +42,10 @@ add_executable(cn105_tests
     test_setpoint_persistence.cpp
     test_mode_preservation.cpp
     test_vane_setpoint_persistence.cpp
+    test_build_frame.cpp
+    test_ha_heartbeat.cpp
+    test_pac_passthrough_decision.cpp
+    test_pac_cache_index.cpp
 )
 
 target_link_libraries(cn105_tests

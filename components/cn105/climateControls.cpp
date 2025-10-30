@@ -62,6 +62,12 @@ void logCheckWantedSettingsMutex(wantedHeatpumpSettings& settings) {
 
 }
 void CN105Climate::controlDelegate(const esphome::climate::ClimateCall& call) {
+    if (this->is_pac_passthrough()) {
+        ESP_LOGW("control", "Ignoring command: PAC passthrough is active");
+        this->publish_state();   // snap the UI back to the real state
+        return;
+    }
+
     ESP_LOGD("control", "espHome control() interface method called...");
     bool updated = false;
 
@@ -759,21 +765,22 @@ void CN105Climate::set_remote_temperature(float setting) {
         return;
     }
 
-    // Toujours renvoyer la température distante lorsqu’un nouvel échantillon arrive,
-    // même si la valeur n’a pas changé, afin d’éviter que l’unité Mitsubishi
-    // ne repasse sur la sonde interne faute de mise à jour régulière (#474).
+    // Always return the remote temperature when a new sample arrives,
+    // even if the value has not changed, in order to prevent the Mitsubishi unit
+    // falling back to the internal probe due to lack of regular updating (#474).
     this->remoteTemperature_ = setting;
     this->shouldSendExternalTemperature_ = true;
-    ESP_LOGD(LOG_REMOTE_TEMP, "setting remote temperature to %f", this->remoteTemperature_);
-
-    // Reset the watchdog timeout (HA sent us a fresh value)
-    this->pingExternalTemperature();
+    ESP_LOGD(LOG_REMOTE_TEMP, "setting remote temperature to %.1f", this->remoteTemperature_);
 
     // Manage keep-alive timer based on temperature value
     if (setting > 0) {
+        // Reset the watchdog timeout (HA sent us a fresh value)
+        this->pingExternalTemperature();
         // Start keep-alive if not already running (periodic re-send like Kumo does)
         this->startRemoteTempKeepAlive();
     } else {
+        // Nothing left to time out
+        this->cancel_timeout(SHEDULER_REMOTE_TEMP_TIMEOUT);
         // Stop keep-alive when reverting to internal sensor
         this->stopRemoteTempKeepAlive();
     }

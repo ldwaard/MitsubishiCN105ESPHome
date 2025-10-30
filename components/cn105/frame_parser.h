@@ -92,6 +92,13 @@ public:
         return computed == checksum_byte_;
     }
 
+    /// True when the received packet has a valid header.
+    /// Only valid after frame_complete() returns true.
+    bool header_valid() const {
+        if (!frame_complete_) return false;
+        return data_length_ >= 1 && buffer_[2] == HEADER[2] && buffer_[3] == HEADER[3];
+    }
+
     /// The command byte (offset 1 in the frame header).
     uint8_t command() const { return command_; }
 
@@ -102,7 +109,7 @@ public:
     /// Only valid after frame_complete() returns true.
     const uint8_t* data() const { return &buffer_[5]; }
 
-    /// Pointer to the full raw frame buffer (header + payload, no checksum).
+    /// Pointer to the full raw frame buffer (header, payload, and checksum).
     const uint8_t* raw() const { return buffer_; }
 
     /// Total frame size including header, payload, and checksum.

@@ -268,6 +268,13 @@ void CN105Climate::set_remote_temp_source_info_sensor(esphome::text_sensor::Text
     }
 }
 
+void CN105Climate::set_ha_heartbeat_source(esphome::text_sensor::TextSensor* heartbeat_source) {
+    // Only the arrival of an update matters, not its value.
+    heartbeat_source->add_on_state_callback([this](const auto&) {
+        this->ha_heartbeat();
+    });
+}
+
 void CN105Climate::set_hp_uptime_connection_sensor(cn105::HpUpTimeConnectionSensor* hp_up_connection_sensor) {
     this->hp_uptime_connection_sensor_ = hp_up_connection_sensor;
 }
@@ -302,4 +309,22 @@ void CN105Climate::add_hardware_setting(HardwareSettingSelect* setting) {
         // Trigger write to device
         this->isSetFunctions_ = true;
         });
+}
+
+void CN105Climate::set_pac_uart(uart::UARTComponent* pac_uart) {
+    this->pac_uart_ = pac_uart;
+}
+
+void CN105Climate::set_pac_passthrough_switch(PacPassthroughSwitch* passthrough_switch) {
+    this->pac_passthrough_switch_ = passthrough_switch;
+    this->pac_passthrough_switch_->publish_state(false);
+    this->pac_passthrough_switch_->setCallbackFunction([this](bool state) {
+        this->pac_passthrough_forced_ = state;
+        ESP_LOGI("PAC", "Forced PAC passthrough %s", state ? "requested" : "released");
+    });
+}
+
+void CN105Climate::set_pac_passthrough_sensor(esphome::binary_sensor::BinarySensor* sensor) {
+    this->pac_passthrough_sensor_ = sensor;
+    sensor->publish_initial_state(false);
 }
