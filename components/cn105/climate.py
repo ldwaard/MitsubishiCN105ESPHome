@@ -1,5 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
+import esphome.final_validate as fv
 from esphome.components.uptime.sensor import UptimeSecondsSensor
 
 from esphome.components import (
@@ -153,6 +154,14 @@ CONF_REPORT_WHEN_IDLE = "report_when_idle"
 CONF_DUAL_SETPOINT = "dual_setpoint"
 CONF_RESTORE_SETPOINTS = "restore_setpoints"
 
+CONF_UART_PAC = "uart_pac"
+CONF_PASSTHROUGH_TIMEOUT = "passthrough_timeout"
+CONF_PASSTHROUGH_SWITCH = "passthrough_switch"
+CONF_PASSTHROUGH_ACTIVE_SENSOR = "passthrough_active_sensor"
+PassthroughSwitch = cg.global_ns.class_(
+    "PassthroughSwitch", switch.Switch, cg.Component
+)
+
 DEFAULT_CLIMATE_MODES = ["AUTO", "COOL", "HEAT", "DRY", "FAN_ONLY", "HEAT_COOL"]
 DEFAULT_FAN_MODES = ["AUTO", "MIDDLE", "QUIET", "LOW", "MEDIUM", "HIGH"]
 DEFAULT_SWING_MODES = ["OFF", "VERTICAL", "HORIZONTAL", "BOTH"]
@@ -224,7 +233,7 @@ HardwareSettingSelect = cg.global_ns.class_(
 )
 
 
-# --- Fonction d'aide pour rÃÂÃÂ©cupÃÂÃÂ©rer les pins TX/RX (identique ÃÂÃÂ  votre version corrigÃÂÃÂ©e) ---
+# ---Help function to recover TX/RX pins (identical to your patched version) ---
 def get_uart_pins_from_config(core_config, target_uart_id_str):
     tx_pin_num = -1
     rx_pin_num = -1
@@ -385,6 +394,17 @@ HVAC_OPTION_SWITCH_SCHEMA = switch.switch_schema(HVACOptionSwitch).extend(
     {cv.GenerateID(CONF_ID): cv.declare_id(HVACOptionSwitch)}
 )
 
+PASSTHROUGH_SWITCH_SCHEMA = switch.switch_schema(PassthroughSwitch).extend(
+    {cv.GenerateID(CONF_ID): cv.declare_id(PassthroughSwitch)}
+)
+
+PASSTHROUGH_ACTIVE_SENSOR_SCHEMA = binary_sensor.binary_sensor_schema(
+    binary_sensor.BinarySensor,
+    device_class="running",
+    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+    icon="mdi:swap-horizontal",
+).extend({cv.GenerateID(CONF_ID): cv.declare_id(binary_sensor.BinarySensor)})
+
 HARDWARE_SETTING_ITEM_SCHEMA = select.select_schema(HardwareSettingSelect).extend(
     {
         cv.Required(CONF_CODE): cv.int_range(min=101, max=128),
@@ -402,6 +422,43 @@ HARDWARE_SETTING_SCHEMA = cv.Schema(
         ),
     }
 )
+
+def _final_validate(config):
+    if CONF_UART_PAC not in config:
+        return config
+
+    hp_id = config[CONF_UART_ID].id
+    pac_id = config[CONF_UART_PAC].id
+
+    # 1. Must be two distinct UART components
+    if hp_id == pac_id:
+        raise cv.Invalid(
+            f"'{CONF_UART_PAC}' must reference a different UART than "
+            f"'{CONF_UART_ID}' (both are '{hp_id}')",
+            path=[CONF_UART_PAC],
+        )
+
+    # 2. Must not share pins (a shared RX would feed both parsers the same bytes)
+    full_config = fv.full_config.get()
+    hp_tx, hp_rx = get_uart_pins_from_config(full_config, hp_id)
+    pac_tx, pac_rx = get_uart_pins_from_config(full_config, pac_id)
+    hp_pins = {p for p in (hp_tx, hp_rx) if p != -1}
+    pac_pins = {p for p in (pac_tx, pac_rx) if p != -1}
+    shared = hp_pins & pac_pins
+    if shared:
+        raise cv.Invalid(
+            f"'{CONF_UART_PAC}' shares pin(s) {sorted(shared)} with "
+            f"'{CONF_UART_ID}'",
+            path=[CONF_UART_PAC],
+        )
+
+    for key in (CONF_PASSTHROUGH_SWITCH, CONF_PASSTHROUGH_ACTIVE_SENSOR):
+        if key in config and CONF_UART_PAC not in config:
+            raise cv.Invalid(f"'{key}' requires '{CONF_UART_PAC}'", path=[key])
+
+    return config
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 CONFIG_SCHEMA = (
     climate.climate_schema(CN105Climate)
@@ -498,6 +555,10 @@ CONFIG_SCHEMA = (
                     ),
                 }
             ),
+            cv.Optional(CONF_UART_PAC): cv.use_id(uart.UARTComponent),
+            cv.Optional(CONF_PASSTHROUGH_TIMEOUT, default="60s"): cv.update_interval,   # "never" disables auto-passthrough
+            cv.Optional(CONF_PASSTHROUGH_SWITCH): PASSTHROUGH_SWITCH_SCHEMA,
+            cv.Optional(CONF_PASSTHROUGH_ACTIVE_SENSOR): PASSTHROUGH_ACTIVE_SENSOR_SCHEMA,
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
@@ -788,6 +849,27 @@ def to_code(config):
         hp_connection_sensor_ = yield sensor.new_sensor(conf)
         yield cg.register_component(hp_connection_sensor_, conf)
         cg.add(var.set_hp_uptime_connection_sensor(hp_connection_sensor_))
+
+    if CONF_UART_PAC in config:
+        pac_conf = config[CONF_UART_PAC]
+        pac_uart = yield cg.get_variable(pac_conf)
+        cg.add(var.set_pac_uart(pac_uart))
+        cg.add(pac_uart.set_data_bits(8))
+        cg.add(pac_uart.set_parity(UARTParityOptions.UART_CONFIG_PARITY_EVEN))
+        cg.add(pac_uart.set_stop_bits(1))
+        pac_tx_pin, pac_rx_pin = get_uart_pins_from_config(CORE.config, str(pac_conf))
+        cg.add(var.set_pac_tx_rx_pins(pac_tx_pin, pac_rx_pin))
+        cg.add(var.set_passthrough_timeout(config[CONF_PASSTHROUGH_TIMEOUT]))
+        # pac_uart_port_index = get_uart_port_index(CORE.config, str(pac_conf))
+        # cg.add(var.set_pac_uart_port(pac_uart_port_index))
+
+    if CONF_PASSTHROUGH_SWITCH in config:
+        sw = yield switch.new_switch(config[CONF_PASSTHROUGH_SWITCH])
+        cg.add(var.set_passthrough_switch(sw))
+
+    if CONF_PASSTHROUGH_ACTIVE_SENSOR in config:
+        bs = yield binary_sensor.new_binary_sensor(config[CONF_PASSTHROUGH_ACTIVE_SENSOR])
+        cg.add(var.set_passthrough_active_sensor(bs))
 
     if CONF_HARDWARE_SETTINGS in config:
         hw_config = config[CONF_HARDWARE_SETTINGS]

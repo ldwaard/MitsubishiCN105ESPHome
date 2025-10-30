@@ -29,6 +29,19 @@ inline uint8_t checksum(const uint8_t* bytes, int len) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// PAC UART
+// ════════════════════════════════════════════════════════════════
+
+/// Build a complete CN105 frame: FC cmd 01 30 len payload... checksum.
+/// @return total frame size (len + 6). `out` must hold at least len + 6 bytes.
+inline int build_frame(uint8_t cmd, const uint8_t* payload, uint8_t len, uint8_t* out) {
+    out[0] = 0xFC; out[1] = cmd; out[2] = 0x01; out[3] = 0x30; out[4] = len;
+    if (len > 0 && payload != nullptr) std::memcpy(&out[5], payload, len);
+    out[5 + len] = checksum(out, 5 + len);
+    return len + 6;
+}
+
+// ════════════════════════════════════════════════════════════════
 // Temperature decoding / encoding
 // ════════════════════════════════════════════════════════════════
 
