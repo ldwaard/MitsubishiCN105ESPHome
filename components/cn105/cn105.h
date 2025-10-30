@@ -67,6 +67,8 @@ namespace esphome {
         void set_auto_sub_mode_sensor(esphome::text_sensor::TextSensor* Auto_sub_mode_sensor);
         void set_hp_uptime_connection_sensor(uptime::HpUpTimeConnectionSensor* hp_up_connection_sensor);
 
+        void set_pac_uart(uart::UARTComponent* pac_uart);
+
         //sensor::Sensor* compressor_frequency_sensor;
         binary_sensor::BinarySensor* iSee_sensor_ = nullptr;
         text_sensor::TextSensor* stage_sensor_{ nullptr }; // to save ref if needed
@@ -110,6 +112,8 @@ namespace esphome {
 
         // sensor to monitor heatpump connection time
         uptime::HpUpTimeConnectionSensor* hp_uptime_connection_sensor_ = nullptr;
+
+        uart::UARTComponent* pac_uart_ = nullptr;
 
         float get_compressor_frequency();
         float get_input_power();
@@ -230,6 +234,11 @@ namespace esphome {
         //Accessor method for the HardwareSerial pointer
         uart::UARTComponent* get_hw_serial_() {
             return this->parent_;
+        }
+
+        //Accessor method for the PAC UART pointer
+        uart::UARTComponent* get_pac_uart_() {
+            return this->pac_uart_;
         }
 
         bool processInput(void);

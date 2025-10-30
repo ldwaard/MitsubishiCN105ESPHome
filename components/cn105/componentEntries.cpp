@@ -57,6 +57,7 @@ void CN105Climate::loop() {
             }
         }
     }
+    // TODO: process inputs from PAC.
 }
 
 uint32_t CN105Climate::get_update_interval() const { return this->update_interval_; }
