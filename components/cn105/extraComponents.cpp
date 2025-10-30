@@ -276,3 +276,7 @@ void CN105Climate::add_hardware_setting(HardwareSettingSelect* setting) {
         this->isSetFunctions_ = true;
         });
 }
+
+void CN105Climate::set_pac_uart(uart::UARTComponent* pac_uart) {
+    this->pac_uart_ = pac_uart;
+}

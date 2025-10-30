@@ -110,6 +110,8 @@ namespace esphome {
         void set_remote_temperature_control_sensor(esphome::binary_sensor::BinarySensor* sensor);
         void set_remote_temperature_margin(float margin);
 
+        void set_pac_uart(uart::UARTComponent* pac_uart);
+
         //sensor::Sensor* compressor_frequency_sensor;
         binary_sensor::BinarySensor* iSee_sensor_ = nullptr;
         binary_sensor::BinarySensor* remote_temp_sensor_ = nullptr;
@@ -160,6 +162,8 @@ namespace esphome {
 
         // sensor to monitor heatpump connection time
         cn105::HpUpTimeConnectionSensor* hp_uptime_connection_sensor_ = nullptr;
+
+        uart::UARTComponent* pac_uart_ = nullptr;
 
         float convert_input_power_to_W(float raw_input_power);
         float convert_energy_usage_to_kWh(float raw_energy_usage);
@@ -334,6 +338,11 @@ namespace esphome {
             return this->parent_;
         }
 
+        //Accessor method for the PAC UART pointer
+        uart::UARTComponent* get_pac_uart_() {
+            return this->pac_uart_;
+        }
+
         bool processInput(void);
         void processDataPacket();
         void getErrorInfoFromResponsePacket();
@@ -349,6 +358,13 @@ namespace esphome {
         void processCommand();
 
         uint8_t checkSum(uint8_t bytes[], int len);
+
+        bool processInputPac(void);
+        void parsePac(uint8_t inputData);
+        void checkHeaderPac(uint8_t inputData);
+        void initBytePointerPac();
+        void processDataPacketPac();
+        bool checkSumPac();
 
         const char* getModeSetting();
         const char* getPowerSetting();
@@ -453,6 +469,7 @@ namespace esphome {
 
         unsigned long lastResponseMs;
 
+        unsigned long lastResponseMsPac;
 
         uint32_t remote_temp_timeout_;
         uint32_t remote_temp_keepalive_interval_ms_ = DEFAULT_REMOTE_TEMP_KEEPALIVE_INTERVAL_MS;
@@ -477,6 +494,9 @@ namespace esphome {
         cn105_protocol::FrameParser parser_;     // UART frame assembler (Phase 3A)
         uint8_t* data;
 
+        uint8_t storedInputDataPac[MAX_DATA_BYTES]; // multi-byte data
+        uint8_t* dataPac;
+
         // All fields are default-initialized via heatpumpStatus struct defaults (NAN, false, etc.)
         heatpumpStatus currentStatus{};
         heatpumpFunctions functions;
@@ -498,6 +518,11 @@ namespace esphome {
         bool isWriting = false;
 
         // foundStart, bytesRead, dataLength, command → moved into parser_ (Phase 3A)
+
+        bool foundStartPac = false;
+        int bytesReadPac = 0;
+        int dataLengthPac = 0;
+        uint8_t commandPac = 0;
 
         // Ensure dual setpoints are valid (no NaN, enforce spread in AUTO)
         void sanitizeDualSetpoints();

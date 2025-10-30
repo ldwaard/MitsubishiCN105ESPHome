@@ -93,6 +93,8 @@ void CN105Climate::loop() {
             }
         }
     }
+    // TODO: process inputs from PAC.
+    this->processInputPac();
 }
 
 void CN105Climate::maybe_start_connection_() {
