@@ -54,7 +54,7 @@ void CN105Climate::controlDelegate(const esphome::climate::ClimateCall& call) {
         updated = true;
         controlMode();
 
-        if (this->traits_.get_supports_two_point_target_temperature()) {
+        if (this->traits_.has_feature_flags(climate::CLIMATE_REQUIRES_TWO_POINT_TARGET_TEMPERATURE)) {
             // then update the temperature setting because mode change can change the temperature setting to low or high
             ESP_LOGD("control", "Mode change asked, controling temperature setting...");
             this->sanitizeDualSetpoints();
@@ -63,12 +63,12 @@ void CN105Climate::controlDelegate(const esphome::climate::ClimateCall& call) {
     }
 
     // Vérifier si une température est fournie selon les traits
-    bool tempHasValue = this->traits_.get_supports_two_point_target_temperature() ?
+    bool tempHasValue = this->traits_.has_feature_flags(climate::CLIMATE_REQUIRES_TWO_POINT_TARGET_TEMPERATURE) ?
         (call.get_target_temperature_low().has_value() || call.get_target_temperature_high().has_value()) :
         call.get_target_temperature().has_value();
 
     if (tempHasValue) {
-        if (this->traits_.get_supports_two_point_target_temperature()) {
+        if (this->traits_.has_feature_flags(climate::CLIMATE_REQUIRES_TWO_POINT_TARGET_TEMPERATURE)) {
             // Dual setpoint : gérer target_temperature_low et target_temperature_high
             if (call.get_target_temperature_low().has_value() && call.get_target_temperature_high().has_value()) {
                 // Les deux bornes sont fournies (mode AUTO)
@@ -291,7 +291,7 @@ void CN105Climate::controlTemperature() {
     float setting;
 
     // Utiliser la logique appropriée selon les traits
-    if (this->traits_.get_supports_two_point_target_temperature()) {
+    if (this->traits_.has_feature_flags(climate::CLIMATE_REQUIRES_TWO_POINT_TARGET_TEMPERATURE)) {
         this->sanitizeDualSetpoints();
         // Dual setpoint : choisir la bonne consigne selon le mode
         switch (this->mode) {
@@ -446,7 +446,7 @@ void CN105Climate::setActionIfOperatingAndCompressorIsActiveTo(climate::ClimateA
 //inside the below we could implement an internal only HEAT_COOL doing the math with an offset or something
 void CN105Climate::updateAction() {
     ESP_LOGV(TAG, "updating action back to espHome...");
-    if (this->traits().get_supports_two_point_target_temperature()) {
+    if (this->traits().has_feature_flags(climate::CLIMATE_REQUIRES_TWO_POINT_TARGET_TEMPERATURE)) {
         this->sanitizeDualSetpoints();
     }
     switch (this->mode) {
@@ -510,7 +510,7 @@ void CN105Climate::updateAction() {
 }
 
 climate::ClimateTraits CN105Climate::traits() {
-    //ESP_LOGD(LOG_SETTINGS_TAG, "traits() called (dual: %d)", traits_.get_supports_two_point_target_temperature());
+    //ESP_LOGD(LOG_SETTINGS_TAG, "traits() called (dual: %d)", traits_.has_feature_flags(climate::CLIMATE_REQUIRES_TWO_POINT_TARGET_TEMPERATURE));
     return traits_;
 }
 
