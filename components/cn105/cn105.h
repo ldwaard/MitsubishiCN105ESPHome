@@ -282,6 +282,9 @@ namespace esphome {
         void getFunctionsPart2();
         void functionsArrived();
         bool setFunctions(heatpumpFunctions const& functions);
+        bool isGetFunctions_ = false;
+        bool isSetFunctions_ = false;
+        bool isGetFunctionsInProcess_ = false;
 
         // helpers
         const char* getIfNotNull(const char* what, const char* defaultValue);

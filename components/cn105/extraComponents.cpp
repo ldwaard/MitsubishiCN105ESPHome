@@ -137,9 +137,16 @@ void CN105Climate::set_functions_sensor(esphome::text_sensor::TextSensor* Functi
 void CN105Climate::set_functions_get_button(FunctionsButton* Button) {
     this->Functions_get_button_ = Button;
     this->Functions_get_button_->setCallbackFunction([this]() {
+        if (this->isGetFunctionsInProcess_) {
+            if (this->Functions_sensor_ != nullptr) {
+                this->Functions_sensor_->publish_state("Operation pending, please wait.");
+            }
+            return;
+        }
+
         ESP_LOGI(LOG_CYCLE_TAG, "Retrieving functions");
         // Get the settings from the heat pump
-        this->getFunctions();
+        this->isGetFunctions_ = true;
         // The response is handled in heatpumpFunctions.cpp
         });
 }
@@ -148,18 +155,25 @@ void CN105Climate::set_functions_set_button(FunctionsButton* Button) {
     this->Functions_set_button_ = Button;
     this->Functions_set_button_->setCallbackFunction([this]() {
 
-        if (!functions.isValid()) {
+        if (!this->functions.isValid()) {
             if (this->Functions_sensor_ != nullptr) {
                 this->Functions_sensor_->publish_state("Please get the functions first.");
             }
             return;
         }
 
+        if (this->isGetFunctionsInProcess_) {
+            if (this->Functions_sensor_ != nullptr) {
+                this->Functions_sensor_->publish_state("Operation pending, please wait.");
+            }
+            return;
+        }
+
         ESP_LOGI(LOG_CYCLE_TAG, "Setting code %i to value %i", this->functions_code_, this->functions_value_);
-        functions.setValue(this->functions_code_, this->functions_value_);
+        this->functions.setValue(this->functions_code_, this->functions_value_);
 
         // Now send the codes.
-        this->setFunctions(functions);
+        this->isSetFunctions_ = true;
 
         });
 }
@@ -263,6 +277,6 @@ void CN105Climate::add_hardware_setting(HardwareSettingSelect* setting) {
         this->functions.setValue(setting->get_code(), int_value);
 
         // Trigger write to device
-        this->setFunctions(this->functions);
+        this->isSetFunctions_ = true;
         });
 }
