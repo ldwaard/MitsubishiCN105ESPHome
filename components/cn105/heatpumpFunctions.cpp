@@ -73,6 +73,9 @@ void CN105Climate::functionsArrived() {
             ESP_LOGD(LOG_HARDWARE_SELECT_TAG, "Code %d received unknown value: %d", setting->get_code(), val);
         }
     }
+
+    // Mark operation complete
+    this->isGetFunctionsInProcess_ = false;
 }
 
 bool CN105Climate::setFunctions(heatpumpFunctions const& functions) {

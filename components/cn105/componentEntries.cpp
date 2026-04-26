@@ -64,15 +64,22 @@ void CN105Climate::loop() {
         if (!can_talk_to_hp) {
             return;
         }
-        if ((this->wantedSettings.hasChanged) && (!this->loopCycle.isCycleRunning())) {
+        if ((this->wantedSettings.hasChanged) && (!this->loopCycle.isCycleRunning()) && (!this->isGetFunctionsInProcess_)) {
             this->checkPendingWantedSettings();
-        } else if ((this->wantedRunStates.hasChanged) && (!this->loopCycle.isCycleRunning())) {
+        } else if ((this->wantedRunStates.hasChanged) && (!this->loopCycle.isCycleRunning()) && (!this->isGetFunctionsInProcess_)) {
             this->checkPendingWantedRunStates();
+        } else if ((this->isSetFunctions_) && (!this->loopCycle.isCycleRunning()) && (!this->isGetFunctionsInProcess_)) {
+            this->isSetFunctions_ = false;
+            this->setFunctions(this->functions);
+        } else if ((this->isGetFunctions_) && (!this->loopCycle.isCycleRunning())) {
+            this->isGetFunctions_ = false;
+            this->isGetFunctionsInProcess_ = true;
+            this->getFunctions();
         } else {
             if (this->loopCycle.isCycleRunning()) {                         // if we are  running an update cycle
                 this->loopCycle.checkTimeout(this->update_interval_);
             } else { // we are not running a cycle
-                if (this->loopCycle.hasUpdateIntervalPassed(this->get_update_interval())) {
+                if ((this->loopCycle.hasUpdateIntervalPassed(this->get_update_interval())) && (!this->isGetFunctionsInProcess_)) {
                     this->buildAndSendRequestsInfoPackets();            // initiate an update cycle with this->cycleStarted();
                 }
             }
