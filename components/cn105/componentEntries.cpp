@@ -75,6 +75,16 @@ void CN105Climate::loop() {
             this->isGetFunctions_ = false;
             this->isGetFunctionsInProcess_ = true;
             this->getFunctions();
+            // Safety timeout: reset flag if no response within 10 seconds
+            this->set_timeout("get_functions_guard", 10000, [this]() {
+                if (this->isGetFunctionsInProcess_) {
+                    ESP_LOGW(LOG_FUNCTIONS_TAG, "Get functions timed out — no response from heat pump. Resuming normal operation.");
+                    this->isGetFunctionsInProcess_ = false;
+                    if (this->Functions_sensor_ != nullptr) {
+                        this->Functions_sensor_->publish_state("Timeout: no response from heat pump.");
+                    }
+                }
+            });
         } else {
             if (this->loopCycle.isCycleRunning()) {                         // if we are  running an update cycle
                 this->loopCycle.checkTimeout(this->update_interval_);
