@@ -45,6 +45,10 @@ void CN105Climate::setup() {
     this->supports_dual_setpoint_ = this->traits_.has_feature_flags(climate::CLIMATE_REQUIRES_TWO_POINT_TARGET_TEMPERATURE);
     ESP_LOGI(TAG, "Dual setpoint support configured: %s", this->supports_dual_setpoint_ ? "YES" : "NO");
     ESP_LOGI(TAG, "Horizontal vanes configured: %d", this->horizontal_vanes_);
+
+    // Restore a previously-saved HEAT_COOL band (opt-in) before the first settings read,
+    // so checkPowerAndModeSettings() keeps HEAT_COOL instead of falling back to AUTO.
+    this->restore_setpoint_state_();
 }
 
 

@@ -1,27 +1,5 @@
 # Mitsubishi CN105 ESPHome
 
-> [!WARNING]
-> Due to a change in ESPHome 2025.8.0, some users are facing UART connection issues after a cold boot. Forcing the firmware esphome version to a previous release (2025.7.5 and below) solves the issue (no cold boot required). Alternative is to force ESP32 IDF version to 5.4.0. Note that OTA updates to 2025.8.0+ may work but can break after a subsequent cold boot.
->
-> _"commit 116c91e9c5fc6d0d32191bd4e6d6e406e2bff6bf Author: Jonathan Swoboda <154711427+swoboda1337@users.noreply.github.com> Date: Tue Jul 22 19:15:31 2025 -0400_
->
-> _Bump ESP32 IDF version to 5.4.2 and Arduino version to 3.2.1 (#9770)"_
->
-> [!IMPORTANT]
-> Temporary fix included: This component now implements a fallback low-level UART reinitialization that triggers only if the initial (normal) connection fails at boot. It reconfigures the UART controller linked to your `uart:` block (clock source, reapplies baudrate, RX pull-up, flush, etc.). No YAML `on_boot` workaround is required. This aims to mitigate ESP-IDF 5.4.x regressions observed on some ESP32 at low baud (2400, 8E1).
->
-> If this fallback still doesn’t work on your hardware, you can temporarily force ESP‑IDF 5.4.0 in your YAML:
->
-> ```yaml
-> esp32:
->   board: esp32-s3-devkitc-1
->   framework:
->     type: esp-idf
->     version: 5.4.0
->   variant: esp32s3
->   flash_size: 8MB
-> ```
-
 This project is a firmware for ESP32 microcontrollers supporting UART communication via the CN105 Mitsubishi connector. Its purpose is to enable complete control of a compatible Mitsubishi heat pump through Home Assistant, a web interface, or any MQTT client.
 
 It uses the ESPHome framework and is compatible with the Arduino framework and ESP-IDF.
@@ -774,6 +752,9 @@ sensor:
     id: ha_remote_temp
     entity_id: sensor.my_room_temperature # Your HA temperature sensor
     internal: true
+    # Uncomment the filter and lambda lines to convert F to C on incoming temperature
+#    filters:
+#      - lambda: return (x - 32) * (5.0/9.0);
 ```
 
 **Step 2:** Reference it in the climate config:
@@ -899,6 +880,9 @@ Compatible units (as reported by users):
 | MSZ-FSxxNA     | MXZ-4C36NA2      | Works                              |
 |                | MUZ-FD25NA       | Not working                        |
 | MSZ-LN35       | MUZ-LN35         | Not working                        |
+| MSZ-LN50       | MXZ-2F53VFHZ     | Works                              |
+| MSZ-KT25       | MXZ-2F53VFHZ     | Works                              |
+| MSZ-LNxx       | MXZ-4F83VFHZ     | Works                              |
 | MSZ-AP20VGK    | MXZ-4F83VF       | Works                              |
 | MSZ-FT50VG2    | MUZ-FT50VG       | Works                              |
 
@@ -939,7 +923,7 @@ sensor:
     name: "dg_uart_connected"
     entity_category: DIAGNOSTIC
     lambda: |-
-      return (bool) id(hp).isUARTConnected_;
+      return (bool) id(hp).isUARTReady_();
     update_interval: 30s
   - platform: template
     name: "dg_complete_cycles"
@@ -1124,12 +1108,167 @@ climate:
             1: "ON (Default)"
             2: "OFF"
 ```
+## Experimental Features
+
+The following features are considered experimental. They rely on protocol bytes or behaviors that are not officially documented by Mitsubishi and may not work on all unit models. Community feedback is essential to validate and improve them.
+
+### Target Humidity Sensor
+
+Some premium Mitsubishi models (e.g. MSZ-LN series) expose a target humidity value in byte 12 of the `0x02` settings response packet. This value changes automatically when the operating mode is switched via the IR remote (e.g. COOL→70%, DRY→50%, HEAT→40%).
+
+This read-only diagnostic sensor allows you to monitor this value in Home Assistant.
+
+```yaml
+climate:
+  - platform: cn105
+    # ... your existing config ...
+    target_humidity_sensor:
+      name: Target Humidity
+```
+
+The sensor appears in Home Assistant with:
+- **Unit**: `%`
+- **Icon**: `mdi:water-percent`
+- **Category**: Diagnostic
+- **Precision**: 0 decimals
+
+> [!NOTE]
+> This sensor is **read-only** and **optional**. On units that do not populate byte 12, the value will remain unavailable (the sensor won't publish `0`). If your unit reports valid humidity values, please share your model and observations in [Discussion #649](https://github.com/echavet/MitsubishiCN105ESPHome/issues/649) to help the community validate this feature.
+
+### Split Vane (Dual Motor) Support
+
+Some Mitsubishi wall-mount units feature split vanes with two independent motors. This component supports controlling both motors together via the `vane_type` option in the `supports` block.
+
+There are two split-vane configurations depending on your unit's hardware:
+
+| `vane_type` | Description | Tested on |
+|------------|-------------|-----------|
+| `standard` (default) | Single motor per vane axis — standard behavior | Most units |
+| `split_horizontal` | Dual horizontal (wide) vane motors — both left/right wide-vane motors are synchronized | MSZ-GE24NA (confirmed by [@polskikrol](https://github.com/polskikrol)) |
+| `split_vertical` | Dual vertical vane motors — experimental, awaiting community validation | MSZ-FH series (pending) |
+
+#### Example: Split Horizontal Vane Configuration
+
+For units with two independent horizontal (wide) vane motors (e.g. MSZ-GE24NA):
+
+```yaml
+climate:
+  - platform: cn105
+    name: "My Heat Pump"
+    # ... your existing config ...
+    horizontal_vane_select:
+      name: Horizontal Vane
+    vertical_vane_select:
+      name: Vertical Vane
+    supports:
+      mode: [HEAT_COOL, COOL, HEAT, DRY, FAN_ONLY]
+      fan_mode: [AUTO, QUIET, LOW, MEDIUM, HIGH]
+      swing_mode: ["OFF", HORIZONTAL, VERTICAL]
+      vane_type: split_horizontal  # ← Synchronizes both horizontal vane motors
+```
+
+#### Example: Split Vertical Vane Configuration (Experimental)
+
+For units with two independent vertical vane motors (e.g. MSZ-FH series):
+
+```yaml
+climate:
+  - platform: cn105
+    name: "My Heat Pump"
+    # ... your existing config ...
+    vertical_vane_select:
+      name: Vertical Vane
+    supports:
+      swing_mode: ["OFF", VERTICAL]
+      vane_type: split_vertical  # ← Experimental: synchronizes both vertical vane motors
+```
+
+> [!WARNING]
+> `split_vertical` is experimental and has not yet been validated by community testers. If your unit has dual vertical vane motors, please test and report your findings in [Issue #505](https://github.com/echavet/MitsubishiCN105ESPHome/issues/505).
+
+## Comparison with ESPHome Native `mitsubishi_cn105`
+
+Since ESPHome 2026.4.0, a native `mitsubishi_cn105` component (by [@crnjan](https://github.com/crnjan)) is available directly in the ESPHome core. Both projects implement the same CN105 serial protocol originally reverse-engineered by [SwiCago](https://github.com/SwiCago/HeatPump). This section helps you decide which one fits your needs.
+
+### Feature Comparison
+
+| Feature | This Project (echavet) | Native ESPHome (crnjan) |
+|---------|:---------------------:|:----------------------:|
+| **Basic HVAC control** (power, mode, fan, temp) | ✅ | ✅ |
+| **Half-degree setpoint** (0.5°C steps) | ✅ | ✅ (PR [#15919](https://github.com/esphome/esphome/pull/15919)) |
+| **HEAT_COOL / AUTO mode** | ✅ Hybrid dual setpoint | ✅ HEAT_COOL mapping (PR [#15748](https://github.com/esphome/esphome/pull/15748)) |
+| **Dual setpoint support** | ✅ Native via `supports: dual_setpoint: true` | ❌ Single setpoint only |
+| **Vertical vane (swing) select** | ✅ 5 positions + SWING | ⏳ Draft PR [#15653](https://github.com/esphome/esphome/pull/15653) |
+| **Horizontal vane (wide vane) select** | ✅ All 8 positions + SWING | ⏳ Draft PR [#15653](https://github.com/esphome/esphome/pull/15653) |
+| **Dual/split vane support** | ✅ `vane_type: split_horizontal / split_vertical` | ❌ Not planned |
+| **Remote temperature sensor** | ✅ Built-in keep-alive + debounce + native binding | ⏳ Open PR [#15558](https://github.com/esphome/esphome/pull/15558) (lambda-only) |
+| **Remote temperature timeout / fallback** | ✅ Configurable auto-revert to internal sensor | ❌ Manual only |
+| **Fahrenheit compatibility** | ✅ Standard + Alt lookup tables | ⏳ Draft PR [#15488](https://github.com/esphome/esphome/pull/15488) |
+| **Compressor frequency sensor** | ✅ | ❌ Not planned |
+| **Input power sensor** | ✅ | ❌ Not planned |
+| **Energy (kWh) sensor** | ✅ | ❌ Not planned |
+| **Outside air temperature** | ✅ | ❌ Not planned |
+| **Operating status / hvac_action** | ✅ Based on compressor state | ❌ |
+| **Stage / Sub Mode / Auto Sub Mode** | ✅ Diagnostic sensors | ❌ |
+| **Runtime hours sensor** | ✅ | ❌ |
+| **iSee sensor** | ✅ | ❌ |
+| **Hardware settings (ISU / Function codes)** | ✅ Read & Write (0x20/0x22 packets) | ❌ Not planned |
+| **Installer mode (0x5B handshake)** | ✅ | ❌ |
+| **Air purifier / Night mode / Circulator** | ✅ Switches (0x08 packets) | ❌ |
+| **Airflow control select** | ✅ | ❌ |
+| **HACS integration (Climate Proxy)** | ✅ Dynamic single/dual slider UI | N/A (native HA integration) |
+| **ESP8266 support** | ✅ | ✅ |
+| **ESP32 (Arduino + IDF)** | ✅ | ✅ |
+| **RP2040 / BK72xx** | ❌ | ✅ |
+
+### Architecture & Reliability Comparison
+
+| Aspect | This Project | Native ESPHome |
+|--------|:----------:|:------------:|
+| **Installation** | `external_components` reference | Zero-config, built into ESPHome core |
+| **UART communication** | Non-blocking, byte-by-byte in `loop()` with debounce and retry. Battle-tested across 100+ real units | Non-blocking FSM with `FrameParser`. Clean design but field-tested on fewer configurations |
+| **Connection recovery** | Multi-layer: UART reinit fallback for ESP-IDF 5.4.x regressions, auto-reconnect, pending packet queue | State machine with `READ_TIMEOUT` state for retry |
+| **Request orchestration** | `RequestScheduler` — prioritized, round-robin multi-packet cycling (settings, room temp, status, timers, HVAC options, standby) | Simple sequential poll: settings → room temp only |
+| **Concurrency protection** | Mutex (ESP32) / emulated mutex (ESP8266) on settings writes | Single-threaded state machine (no contention risk) |
+| **State management** | Distributed booleans (pragmatic, field-proven) | Formal `enum class State` FSM with validated transitions |
+| **Frame parsing** | Inline in main class, overflow-protected (64-byte buffer) | Encapsulated `FrameParser` class, template callback-based (32-byte buffer) |
+| **Type safety** | `const char*` parallel arrays (legacy SwiCago pattern) | `enum class` + `std::optional` + `constexpr` lookup |
+| **Temperature encoding** | Dual A/B encoding, auto-detect | Dual A/B encoding, auto-detect |
+| **Unit test suite** | ❌ (community-validated) | ✅ Full C++ test coverage |
+| **ESPHome API stability** | ⚠️ May require updates on ESPHome major releases | ✅ Maintained by core team, no breaking changes |
+| **Binary size** | ~5900 lines C++ (all features included) | ~700 lines C++ (minimal feature set) |
+| **Codebase maturity** | 2+ years, 600+ issues/PRs, active community | Released April 2026, rapidly evolving |
+
+### When to Use Which?
+
+**Choose this project** if you need:
+- 🔧 **Full diagnostic visibility** — compressor frequency, power consumption, energy tracking, operating stages
+- 🌡️ **Advanced remote temperature** — built-in keep-alive, auto-timeout fallback, native sensor binding
+- 🎛️ **Complete vane control** — all positions, dual/split vane support for multi-motor units
+- ⚙️ **Hardware settings (ISU)** — read/write Mitsubishi function codes directly
+- 🔄 **Dual setpoint** — independent heat/cool targets with the Climate Proxy HACS integration
+- 📊 **Energy monitoring** — kWh tracking, input power sensor
+- 🛡️ **Proven reliability** — battle-tested firmware running on hundreds of units for 2+ years
+
+**Choose the native ESPHome component** if you need:
+- 🚀 **Simplest setup** — 5-line YAML, no `external_components` reference
+- 🔒 **Core team maintenance** — guaranteed API compatibility with ESPHome updates
+- ✅ **Unit-tested codebase** — formal state machine, clean architecture
+- 💾 **Minimal binary footprint** — ideal for constrained ESP8266 devices
+- 🖥️ **RP2040 / BK72xx** — platform support beyond ESP32/ESP8266
+
+> [!NOTE]
+> Both projects use the same underlying CN105 protocol and are compatible with the same Mitsubishi units. You can switch between them at any time by changing your YAML configuration. Your heat pump doesn't care which firmware talks to it.
+
+> [!TIP]
+> The native ESPHome component is actively catching up — vane support ([#15653](https://github.com/esphome/esphome/pull/15653)), remote temperature ([#15558](https://github.com/esphome/esphome/pull/15558)), and Fahrenheit ([#15488](https://github.com/esphome/esphome/pull/15488)) are in progress. However, advanced diagnostics and energy sensors are not on its roadmap. Check the [ESPHome changelog](https://esphome.io/changelog/) for the latest status.
 
 ## Other Implementations
 
-- [esphome-mitsubishiheatpump](https://github.com/geoffdavis/esphome-mitsubishiheatpump) - The original esphome project from which this one is forked.
+- [esphome-mitsubishiheatpump](https://github.com/geoffdavis/esphome-mitsubishiheatpump) - The original ESPHome project from which this one is forked.
 - [gysmo38/mitsubishi2MQTT](https://github.com/gysmo38/mitsubishi2MQTT) - Direct MQTT controls, robust but with a less stable WiFi stack.
-- ESPHome's built-in [Mitsubishi](https://github.com/esphome/esphome/blob/dev/esphome/components/mitsubishi/mitsubishi.h) climate component - Uses IR Remote commands, lacks bi-directional communication.
+- ESPHome's built-in [Mitsubishi](https://github.com/esphome/esphome/blob/dev/esphome/components/mitsubishi/mitsubishi.h) climate component — Uses IR Remote commands, lacks bi-directional communication.
+- ESPHome's native [`mitsubishi_cn105`](https://github.com/esphome/esphome/tree/dev/esphome/components/mitsubishi_cn105) component — CN105 UART support built into ESPHome core since 2026.4.0. See comparison above.
 
 ## Reference Documentation
 

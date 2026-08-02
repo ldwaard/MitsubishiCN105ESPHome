@@ -3,10 +3,19 @@
     "step": {
       "user": {
         "title": "Add Mitsubishi Climate Proxy",
-        "description": "Create a hybrid entity (Dual/Single setpoint wrapper)",
+        "description": "Create a hybrid entity with Dual/Single setpoint wrapper and optional vane control.",
         "data": {
           "source": "Source Entity (ESPHome Climate)",
-          "name": "Name for the new Hybrid Entity"
+          "name": "Name for the new Hybrid Entity",
+          "horizontal_vane_entity": "Horizontal Vane Entity (ESPHome Select, optional)",
+          "vertical_vane_entity": "Vertical Vane Entity (ESPHome Select, optional)",
+          "coordinator_single_target": "Coordinator single-target mode (Tesla-style: one target temp, coordinator owns mode)",
+          "room_key": "Coordinator room key (any zone key, e.g. 'primary') — required for single-target mode",
+          "helper_prefix": "Coordinator helper prefix (default 'hvac' -> input_number.hvac_<room_key>_target)",
+          "season_entity": "Season input_select entity",
+          "shared_mode_entity": "Coordinator shared-mode input_select entity",
+          "recompute_event": "Coordinator recompute event name",
+          "comfort_offset": "Comfort offset (°F) applied to the far band edge"
         }
       }
     },
@@ -15,6 +24,23 @@
     },
     "abort": {
       "already_configured": "This entity is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Mitsubishi Climate Proxy options",
+        "description": "Toggle the Tesla-style single-target surface for a coordinator-owned head. Changes reload the entry in place (HomeKit tile is preserved, no re-pair).",
+        "data": {
+          "coordinator_single_target": "Coordinator single-target mode",
+          "room_key": "Coordinator room key (any zone key, e.g. 'primary')",
+          "helper_prefix": "Coordinator helper prefix (default 'hvac')",
+          "season_entity": "Season input_select entity",
+          "shared_mode_entity": "Coordinator shared-mode input_select entity",
+          "recompute_event": "Coordinator recompute event name",
+          "comfort_offset": "Comfort offset (°F)"
+        }
+      }
     }
   }
 }

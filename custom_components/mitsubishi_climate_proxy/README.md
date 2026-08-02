@@ -12,6 +12,7 @@ This component wraps the ESPHome entity and provides a "Proxy" entity that:
 *   Shows **1 Slider** in **Heat**, **Cool**, and **Auto** modes.
 *   Shows **2 Sliders** in **Heat/Cool** mode.
 *   Intelligently maps single-setpoint adjustments to the underlying dual-setpoint ESPHome entity.
+*   Exposes **independent horizontal vane (WideVane)** control via the HA-native `swing_horizontal_mode` API (requires HA 2024.12+).
 
 ## Prerequisites
 
@@ -43,6 +44,7 @@ This integration now supports configuration directly via the Home Assistant user
 4.  Follow the on-screen instructions:
     *   Select the source ESPHome entity (e.g., `climate.living_room_esphome`).
     *   Give your new proxy entity a name (e.g., `Living Room Climate`).
+    *   *(Optional)* Select the horizontal vane select entity (e.g., `select.living_room_horizontal_vane`) to enable WideVane control in the climate card.
 5.  Click **Submit**.
 
 Your new entity will be created immediately.
@@ -56,8 +58,9 @@ If you prefer to define your entities in YAML, you can still add this to your `c
 
 climate:
   - platform: mitsubishi_climate_proxy
-    source_entity: climate.chambre_esphome  # The ID of your real ESPHome entity
-    name: Chambre Hybrid                    # The name of the new entity to use in your Dashboard
+    source_entity: climate.chambre_esphome     # The ID of your real ESPHome entity
+    name: Chambre Hybrid                       # The name of the new entity to use in your Dashboard
+    horizontal_vane_entity: select.chambre_horizontal_vane  # (Optional) WideVane select entity
 ```
 
 ## Dashboard Setup
@@ -71,10 +74,58 @@ entity: climate.living_room_climate # Use the new proxy entity here
 
 ## How it works
 
+### Temperature Setpoints
 *   **Heat Mode**: Controls `target_temp_low`.
 *   **Cool Mode**: Controls `target_temp_high`.
 *   **Auto Mode**: Controls the midpoint of the range (moving both low and high to maintain the spread).
 *   **Heat/Cool Mode**: Exposes both Low and High setpoints.
+
+### Horizontal Vane (WideVane)
+When a `horizontal_vane_entity` is configured, the proxy:
+*   Reads the current vane position from the ESPHome `select` entity
+*   Exposes it as `swing_horizontal_mode` (HA-native, requires HA **2024.12+**)
+*   Forwards position changes via the `select.select_option` service
+*   Updates in real-time when the vane position changes (state tracking)
+
+This allows the WideVane to appear directly in the standard climate card alongside the vertical swing.
+
+### Coordinator Single-Target Mode (optional, off by default)
+A multi-zone Mitsubishi MXZ outdoor unit can only run **one mode at a time**, so running each indoor
+head in hardware AUTO causes the well-known "idle head starves the other" standby deadlock. The usual
+fix is an external **coordinator** that keeps every head in one explicit shared mode and drives each
+room to a single target. This mode turns the proxy into the thermostat *surface* for such a
+coordinator-owned head:
+
+*   Presents a **single target temperature** (OFF / HEAT / COOL only — no `heat_cool`, no dual range).
+*   **Reports the coordinator's current shared mode** and masks the firmware's `fan_only`/`idle` so
+    HomeKit/Google show a clean "to X°, idle" instead of a scary `fan_only` tile.
+*   **Redirects writes to the coordinator's helpers** (never the firmware directly): setting the
+    temperature writes the room's `input_number` target and enables the room; OFF clears the room
+    enable; both fire a recompute event for the coordinator. Toggle it live via the **Options flow** —
+    the entry reloads in place, so the **HomeKit accessory ID stays stable** (no re-pair).
+
+Enable it with `coordinator_single_target: true` plus a `room_key`. The helper names are fully
+configurable (defaults shown):
+
+| Option | Default | Purpose |
+|---|---|---|
+| `room_key` | *(required)* | zone key `K`, e.g. `primary` |
+| `helper_prefix` | `hvac` | builds `input_number.<prefix>_<K>_target` / `input_boolean.<prefix>_<K>_enable` |
+| `shared_mode_entity` | `input_select.hvac_shared_mode` | the coordinator's current mode (cool/heat) |
+| `season_entity` | `input_select.hvac_season` | season fallback (cooling/heating) |
+| `recompute_event` | `mxz_recompute` | event fired after a write to nudge the coordinator |
+| `comfort_offset` | `6.0` | °F applied to the far band edge in non-coordinator dual-setpoint writes |
+
+**Default is off**, in which case behavior is identical to a plain proxy. The companion coordinator,
+**[ha-mxz-coordinator](https://github.com/dkpnw/ha-mxz-coordinator)**, is now a **one-click HACS
+integration** (config-flow): add the repo to HACS, download it, then add the integration from the UI
+and pick your heads and temperature sensors — no YAML editing.
+
+> **Which coordinator install to pair with:** the `input_number.*` / `input_boolean.*` /
+> `input_select.*` writes documented above match ha-mxz-coordinator's **legacy YAML package**. Its
+> **v2.0.0 HACS integration** instead owns its helpers as **`number.*` / `switch.*` / `select.*`**
+> entities, which this proxy mode does not write to yet — so pair the proxy's single-target mode with
+> the **YAML package** for now. The `mxz_recompute` event nudge works with either.
 
 ## Under the Hood: How it solves the UI Glitch
 
@@ -86,6 +137,7 @@ This component uses the **Proxy Pattern**. It mirrors the state of your real ESP
 
 *   **When in `HEAT` or `AUTO` mode:** The component masks the "Dual Setpoint" capability. Home Assistant believes the device only supports a single target and renders **one slider**.
 *   **When in `HEAT_COOL` mode:** The component reveals the "Dual Setpoint" capability. Home Assistant renders **two sliders**.
+*   **When a horizontal vane entity is configured:** The component adds `SWING_HORIZONTAL_MODE` to the features, making the horizontal swing selector appear in the climate UI.
 
 ### Fahrenheit Compatibility
 

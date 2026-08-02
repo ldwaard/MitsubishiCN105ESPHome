@@ -37,6 +37,10 @@ add_executable(cn105_tests
     test_real_frames.cpp
     test_frame_parser.cpp
     test_protocol.cpp
+    test_localization.cpp
+    test_dual_setpoint_recenter.cpp
+    test_setpoint_persistence.cpp
+    test_mode_preservation.cpp
 )
 
 target_link_libraries(cn105_tests

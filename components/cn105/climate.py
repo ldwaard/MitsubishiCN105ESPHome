@@ -86,6 +86,7 @@ CONF_INPUT_POWER_SENSOR = "input_power_sensor"
 CONF_KWH_SENSOR = "kwh_sensor"
 CONF_RUNTIME_HOURS_SENSOR = "runtime_hours_sensor"
 CONF_OUTSIDE_AIR_TEMPERATURE_SENSOR = "outside_air_temperature_sensor"
+CONF_TARGET_HUMIDITY_SENSOR = "target_humidity_sensor"
 CONF_ISEE_SENSOR = "isee_sensor"
 CONF_FUNCTIONS_SENSOR = "functions_sensor"
 CONF_FUNCTIONS_BUTTON = "functions_get_button"
@@ -116,6 +117,7 @@ CONF_POWER_UNIT_IS_BTU = "power_unit_is_btu"
 
 # Support explicite du DUAL setpoint via YAML
 CONF_DUAL_SETPOINT = "dual_setpoint"
+CONF_RESTORE_SETPOINTS = "restore_setpoints"
 
 DEFAULT_CLIMATE_MODES = ["AUTO", "COOL", "HEAT", "DRY", "FAN_ONLY", "HEAT_COOL"]
 DEFAULT_FAN_MODES = ["AUTO", "MIDDLE", "QUIET", "LOW", "MEDIUM", "HIGH"]
@@ -155,6 +157,9 @@ OutsideAirTemperatureSensor = cg.global_ns.class_(
     "OutsideAirTemperatureSensor", sensor.Sensor, cg.Component
 )
 ISeeSensor = cg.global_ns.class_("ISeeSensor", binary_sensor.BinarySensor, cg.Component)
+TargetHumiditySensor = cg.global_ns.class_(
+    "TargetHumiditySensor", sensor.Sensor, cg.Component
+)
 StageSensor = cg.global_ns.class_("StageSensor", text_sensor.TextSensor, cg.Component)
 FunctionsSensor = cg.global_ns.class_(
     "FunctionsSensor", text_sensor.TextSensor, cg.Component
@@ -270,6 +275,14 @@ OUTSIDE_AIR_TEMPERATURE_SENSOR_SCHEMA = sensor.sensor_schema(
 ISEE_SENSOR_SCHEMA = binary_sensor.binary_sensor_schema(ISeeSensor).extend(
     {cv.GenerateID(CONF_ID): cv.declare_id(ISeeSensor)}
 )
+TARGET_HUMIDITY_SENSOR_SCHEMA = sensor.sensor_schema(
+    TargetHumiditySensor,
+    unit_of_measurement="%",
+    icon="mdi:water-percent",
+    state_class=STATE_CLASS_MEASUREMENT,
+    accuracy_decimals=0,
+    entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+).extend({cv.GenerateID(CONF_ID): cv.declare_id(TargetHumiditySensor)})
 FUNCTIONS_SENSOR_SCHEMA = text_sensor.text_sensor_schema(FunctionsSensor).extend(
     {cv.GenerateID(CONF_ID): cv.declare_id(FunctionsSensor)}
 )
@@ -378,6 +391,7 @@ CONFIG_SCHEMA = (
                 CONF_OUTSIDE_AIR_TEMPERATURE_SENSOR
             ): OUTSIDE_AIR_TEMPERATURE_SENSOR_SCHEMA,
             cv.Optional(CONF_ISEE_SENSOR): ISEE_SENSOR_SCHEMA,
+            cv.Optional(CONF_TARGET_HUMIDITY_SENSOR): TARGET_HUMIDITY_SENSOR_SCHEMA,
             cv.Optional(CONF_FUNCTIONS_SENSOR): FUNCTIONS_SENSOR_SCHEMA,
             cv.Optional(CONF_FUNCTIONS_BUTTON): FUNCTIONS_BUTTON_SCHEMA,
             cv.Optional(CONF_FUNCTIONS_SET_BUTTON): FUNCTIONS_BUTTON_SCHEMA,
@@ -433,6 +447,7 @@ CONFIG_SCHEMA = (
                         CONF_SWING_MODE, default=DEFAULT_SWING_MODES
                     ): cv.ensure_list(climate.validate_climate_swing_mode),
                     cv.Optional(CONF_DUAL_SETPOINT, default=False): cv.boolean,
+                    cv.Optional(CONF_RESTORE_SETPOINTS, default=False): cv.boolean,
                     cv.Optional(CONF_SUPPORTS_HORIZONTAL_VANE_MODE): cv.ensure_list(
                         cv.string
                     ),
@@ -514,6 +529,10 @@ def to_code(config):
             cg.add(traits.add_feature_flags(dual_flag))
 
         # Note: If yaml_dual is False, we simply do NOT add the dual_flag.
+
+        # Opt-in: persist the HEAT_COOL band (mode + low/high) to flash and restore
+        # it on boot, so a reboot/OTA doesn't drop the unit back to hardware AUTO.
+        cg.add(var.set_restore_setpoints(supports.get(CONF_RESTORE_SETPOINTS, False)))
         # ESPHome's default behavior for modes like COOL/HEAT is to enable single-point target temperature.
         # We don't need to explicitly force single-point or clear the dual flag (it's off by default).
 
@@ -614,6 +633,13 @@ def to_code(config):
     if CONF_ISEE_SENSOR in config:
         bsensor_var = yield binary_sensor.new_binary_sensor(config[CONF_ISEE_SENSOR])
         cg.add(var.set_isee_sensor(bsensor_var))
+
+    if CONF_TARGET_HUMIDITY_SENSOR in config:
+        conf_item = config[CONF_TARGET_HUMIDITY_SENSOR]
+        if "force_update" not in conf_item:
+            conf_item["force_update"] = False
+        sensor_var = yield sensor.new_sensor(conf_item)
+        cg.add(var.set_target_humidity_sensor(sensor_var))
 
     if CONF_FUNCTIONS_SENSOR in config:
         tsensor_var = yield text_sensor.new_text_sensor(config[CONF_FUNCTIONS_SENSOR])
@@ -716,6 +742,7 @@ def to_code(config):
     if CONF_HP_UP_TIME_CONNECTION_SENSOR in config:
         conf = config[CONF_HP_UP_TIME_CONNECTION_SENSOR]
         hp_connection_sensor_ = yield sensor.new_sensor(conf)
+        yield cg.register_component(hp_connection_sensor_, conf)
         cg.add(var.set_hp_uptime_connection_sensor(hp_connection_sensor_))
 
     if CONF_HARDWARE_SETTINGS in config:

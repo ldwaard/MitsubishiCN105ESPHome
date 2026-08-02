@@ -73,6 +73,11 @@ void CN105Climate::controlDelegate(const esphome::climate::ClimateCall& call) {
     updated = this->processSwingChange(call) || updated;
 
     this->finalizeControlIfUpdated(updated);
+
+    // Persist the (possibly new) mode + band so it can be restored after a reboot.
+    if (updated) {
+        this->save_setpoint_state_();
+    }
 }
 
 bool CN105Climate::processModeChange(const esphome::climate::ClimateCall& call) {
@@ -759,5 +764,56 @@ void CN105Climate::set_remote_temperature(float setting) {
     } else {
         // Stop keep-alive when reverting to internal sensor
         this->stopRemoteTempKeepAlive();
+    }
+}
+
+// --- HEAT_COOL band persistence (opt-in: supports.restore_setpoints) ----------------
+// The dual-setpoint band is synthetic (a Mitsubishi unit stores only a single setpoint),
+// so it is lost on reboot and the entity returns as hardware AUTO. When enabled, we keep
+// {mode, low, high} in flash and re-seed it in setup() before the first settings read.
+
+void CN105Climate::restore_setpoint_state_() {
+    if (!this->restore_setpoints_) {
+        return;
+    }
+    this->setpoint_pref_ = global_preferences->make_preference<SetpointState>(
+        this->get_object_id_hash() ^ 0x53504E54UL);  // XOR 'SPNT'
+    this->setpoint_pref_ready_ = true;
+
+    SetpointState s{};
+    if (!this->setpoint_pref_.load(&s)) {
+        ESP_LOGI("restore", "restore_setpoints: no saved HEAT_COOL band in flash");
+        return;
+    }
+    if (s.version != 1 || s.mode != static_cast<uint8_t>(climate::CLIMATE_MODE_HEAT_COOL) ||
+        std::isnan(s.target_low) || std::isnan(s.target_high)) {
+        ESP_LOGD("restore", "restore_setpoints: saved state is not a restorable HEAT_COOL band (mode=%u)", s.mode);
+        return;
+    }
+    if (!this->supports_dual_setpoint_) {
+        ESP_LOGW("restore", "restore_setpoints: saved HEAT_COOL band found but dual_setpoint not enabled; ignoring");
+        return;
+    }
+    // Seed HEAT_COOL + band before the first settings read. checkPowerAndModeSettings()
+    // keeps HEAT_COOL while the unit reports hardware-AUTO; if the user switched the unit to
+    // an explicit HEAT/COOL/OFF on the IR remote while powered off, that read path overrides
+    // this seed (remote wins), so no extra conflict handling is needed here.
+    this->mode = climate::CLIMATE_MODE_HEAT_COOL;
+    this->setTargetTemperatureLow(s.target_low);
+    this->setTargetTemperatureHigh(s.target_high);
+    ESP_LOGI("restore", "restore_setpoints: restored HEAT_COOL band low=%.1f high=%.1f", s.target_low, s.target_high);
+}
+
+void CN105Climate::save_setpoint_state_() {
+    if (!this->restore_setpoints_ || !this->setpoint_pref_ready_) {
+        return;
+    }
+    SetpointState s{};
+    s.version = 1;
+    s.mode = static_cast<uint8_t>(this->mode);
+    s.target_low = this->getTargetTemperatureLow();
+    s.target_high = this->getTargetTemperatureHigh();
+    if (this->setpoint_pref_.save(&s)) {
+        ESP_LOGD("restore", "restore_setpoints: saved mode=%u low=%.1f high=%.1f", s.mode, s.target_low, s.target_high);
     }
 }

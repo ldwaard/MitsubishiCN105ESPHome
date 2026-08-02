@@ -17,11 +17,21 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Mitsubishi Hybrid Climate from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    
+
+    # Reload the entry when its options change (e.g. toggling coordinator single-target
+    # mode via the Options flow) so the new presentation takes effect live without a
+    # delete/recreate — keeping the HomeKit accessory ID stable (no re-pair).
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
     # Forward the setup to the climate platform
     await hass.config_entries.async_forward_entry_setups(entry, ["climate"])
-    
+
     return True
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the config entry when its options are updated."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
