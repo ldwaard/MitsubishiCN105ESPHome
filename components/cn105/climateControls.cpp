@@ -26,7 +26,7 @@ void CN105Climate::checkPendingWantedSettings() {
         return;
     }
 
-    ESP_LOGI(LOG_ACTION_EVT_TAG, "checkPendingWantedSettings - wanted settings have changed, sending them to the heatpump...");
+    ESP_LOGD(LOG_ACTION_EVT_TAG, "checkPendingWantedSettings - wanted settings have changed, sending them to the heatpump...");
     this->sendWantedSettings();
 }
 
@@ -46,7 +46,7 @@ void CN105Climate::checkPendingWantedRunStates() {
         return;
     }
 
-    ESP_LOGI(LOG_ACTION_EVT_TAG, "checkPendingWantedRunStates - wanted run states have changed, sending them to the heatpump...");
+    ESP_LOGD(LOG_ACTION_EVT_TAG, "checkPendingWantedRunStates - wanted run states have changed, sending them to the heatpump...");
     this->sendWantedRunStates();
 }
 
@@ -227,7 +227,9 @@ bool CN105Climate::processTemperatureChange(const esphome::climate::ClimateCall&
         ESP_LOGD("control", "Processing without dual setpoint support...");
         if (call.get_target_temperature().has_value()) {
             this->setTargetTemperature(temp_single);
-            ESP_LOGI("control", "Setting heatpump setpoint : %.1f", this->getTargetTemperature());
+            if (this->getTargetTemperature() != this->currentSettings.temperature) {
+                ESP_LOGI("control", "setting heatpump setpoint : %.1f", this->getTargetTemperature());
+            }
         }
     }
 
@@ -476,7 +478,7 @@ void CN105Climate::controlTemperature() {
     // so we can apply a grace window before accepting PAC-reported setpoints.
     this->wantedSettings.last_user_temperature = setting;
     this->wantedSettings.last_user_temperature_ms = CUSTOM_MILLIS;
-    ESP_LOGI("control", "setting wanted temperature to %.1f (tracked as last_user_temperature)", setting);
+    ESP_LOGD("control", "setting wanted temperature to %.1f (tracked as last_user_temperature)", setting);
 }
 
 
@@ -485,18 +487,27 @@ void CN105Climate::controlMode() {
 
     switch (this->mode) {
     case climate::CLIMATE_MODE_COOL:
-        ESP_LOGI("control", "changing mode to COOL");
+        if (strcmp(this->currentSettings.mode, "COOL") != 0 ||
+            strcmp(this->currentSettings.power, "ON") != 0) {
+            ESP_LOGI("control", "changing mode to COOL");
+        }
         this->setModeSetting("COOL");
         this->setPowerSetting("ON");
         break;
     case climate::CLIMATE_MODE_HEAT:
-        ESP_LOGI("control", "changing mode to HEAT");
+        if (strcmp(this->currentSettings.mode, "HEAT") != 0 ||
+            strcmp(this->currentSettings.power, "ON") != 0) {
+            ESP_LOGI("control", "changing mode to HEAT");
+        }
         this->setModeSetting("HEAT");
         this->setPowerSetting("ON");
 
         break;
     case climate::CLIMATE_MODE_DRY:
-        ESP_LOGI("control", "changing mode to DRY");
+        if (strcmp(this->currentSettings.mode, "DRY") != 0 ||
+            strcmp(this->currentSettings.power, "ON") != 0) {
+            ESP_LOGI("control", "changing mode to DRY");
+        }
         this->setModeSetting("DRY");
         this->setPowerSetting("ON");
 
@@ -509,18 +520,26 @@ void CN105Climate::controlMode() {
         break;
 
     case climate::CLIMATE_MODE_AUTO:
-        ESP_LOGI("control", "changing mode to AUTO");
+        if (strcmp(this->currentSettings.mode, "AUTO") != 0 ||
+            strcmp(this->currentSettings.power, "ON") != 0) {
+            ESP_LOGI("control", "changing mode to AUTO");
+        }
         this->setModeSetting("AUTO");
         this->setPowerSetting("ON");
 
         break;
     case climate::CLIMATE_MODE_FAN_ONLY:
-        ESP_LOGI("control", "changing mode to FAN_ONLY");
+        if (strcmp(this->currentSettings.mode, "FAN") != 0 ||
+            strcmp(this->currentSettings.power, "ON") != 0) {
+            ESP_LOGI("control", "changing mode to FAN_ONLY");
+        }
         this->setModeSetting("FAN");
         this->setPowerSetting("ON");
         break;
     case climate::CLIMATE_MODE_OFF:
-        ESP_LOGI("control", "changing mode to OFF");
+        if (strcmp(this->currentSettings.power, "OFF") != 0) {
+            ESP_LOGI("control", "changing mode to OFF");
+        }
         this->setPowerSetting("OFF");
         break;
     default:

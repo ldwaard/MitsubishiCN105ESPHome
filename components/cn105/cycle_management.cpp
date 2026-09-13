@@ -36,7 +36,7 @@ void cycleManagement::deferCycle() {
 
 }
 void cycleManagement::cycleStarted() {
-    ESP_LOGI(LOG_CYCLE_TAG, "1: Cycle start");
+    ESP_LOGD(LOG_CYCLE_TAG, "1: Cycle start");
     lastCycleStartMs = CUSTOM_MILLIS;
     cycleRunning = true;
 }
@@ -49,7 +49,7 @@ void cycleManagement::cycleEnded(bool timedOut) {
         lastCompleteCycleMs = CUSTOM_MILLIS;      // to prevent next inteval from ticking too soon
     }
 
-    ESP_LOGI(LOG_CYCLE_TAG, "6: Cycle ended in %.1f seconds (with timeout?: %s)",
+    ESP_LOGD(LOG_CYCLE_TAG, "6: Cycle ended in %.1f seconds (with timeout?: %s)",
         (lastCompleteCycleMs - lastCycleStartMs) / 1000.0, timedOut ? "YES" : " NO");
 
 }
