@@ -6,7 +6,7 @@ It uses the ESPHome framework and is compatible with the Arduino framework and E
 
 This component version is an adaptation of [geoffdavis's esphome-mitsubishiheatpump](https://github.com/geoffdavis/esphome-mitsubishiheatpump). Its purpose is to integrate the Mitsubishi heat pump protocol (enabled by the [SwiCago library](https://github.com/SwiCago/HeatPump)) directly into the ESPHome component classes for a more seamless integration.
 
-The intended use case is for owners of a Mitsubishi Electric heat pump or air conditioner that includes a CN105 communication port to directly control their air handler or indoor unit using local communication through a web browser, or most commonly, the [HomeAssistant](https://www.home-assistant.io/) home automation platform. Installation requires the use of a WiFi capable ESP32 or ESP8266 device, modified to include a 5 pin plug to connect to the heat pump indoor unit. ESPHome is used to load the custom firmware onto the device, and the web browser or HomeAssistant software is used to send temperature setpoints, external temperature references, and settings to the heat pump. Installation requires basic soldering skills, and basic skills in flashing a firmware to a microcontroller (though ESPHome makes this as painless as possible).
+The intended use case is for owners of a Mitsubishi Electric heat pump or air conditioner that includes a CN105 communication port to directly control their air handler or indoor unit using local communication through a web browser, or most commonly, the [HomeAssistant](https://www.home-assistant.io/) home automation platform. Installation requires a WiFi capable ESP32 or ESP8266 device, a bidirectional logic level shifter, and a 5-pin plug to connect to the heat pump indoor unit. ESPHome is used to load the custom firmware onto the device, and the web browser or HomeAssistant software is used to send temperature setpoints, external temperature references, and settings to the heat pump. Installation requires basic soldering skills, and basic skills in flashing a firmware to a microcontroller (though ESPHome makes this as painless as possible).
 
 The benefits include fully local control over your heat pump system, without reliance on a vendor network. Additional visibility, finer control, and even improved energy efficiency and comfort are possible when utilizing the remote temperature features.
 
@@ -17,6 +17,7 @@ The benefits include fully local control over your heat pump system, without rel
 ### New Features
 
 - Support Fahrenheit users better by mapping unit conversions to Mitsubishi's "creative" math, ensuring that HomeAssistant and external thermostats stay in sync. Thanks [@ams2990](https://github.com/ams2990) and [@dsstewa](https://github.com/dsstewa)!
+- Support the MSZ-A24NA setpoint table using a unique bytecode-to-Celsius mapping. Enable with `msz_a24na_setpoint_table: true`. Thanks [@GraphicHealer](https://github.com/GraphicHealer)!
 - Additional components for supported units: vane orientation (fully supporting the Swicago map), compressor frequency for energy monitoring, and i-see sensor.
 - Additional diagnostic sensors for understanding the behavior of the indoor units while in AUTO mode.
 - Additional sensors for power usage and outdoor temperature (not supported by all units).
@@ -81,12 +82,51 @@ Units tested by project contributors include:
 - `PEFY-P32VMA-E2`
 - `SEZ-KD25VAQ`
 - `SEZ-M50DAL`
+- `MSZ-A24NA` (See `msz_a24na_setpoint_table` and `fahrenheit_compatibility`)
 
 ## Usage
 
 ### Step 1: Building the Control Circuit
 
-Follow the [SwiCago/HeatPump README](https://github.com/SwiCago/HeatPump/blob/master/README.md#demo-circuit) for building a control circuit using either an ESP8266 or ESP32.
+The CN105 port is a **5V TTL UART** (2400 baud). ESP32 (and ESP8266) GPIO pins are **3.3V**. The proper way to hook them up is a **bidirectional logic level shifter** on the TX and RX lines. Do not wire the heat pump UART directly to the ESP32 GPIO pins because the ESP32 GPIO pins are not 5V tolerant.
+
+The indoor unit also supplies 5V on CN105. The ESP32 can be powered from that 5V rail via the board's `5V` pin, so a separate USB supply is not required once the device is installed.
+
+#### Circuit diagram
+
+The diagram below shows a Seeed Studio XIAO ESP32-C6 with a 4-channel bidirectional level shifter. The same wiring applies to other ESP32 boards: use that board's `5V`, `GND`, `3V3`, UART TX, and UART RX pins (and match `tx_pin` / `rx_pin` in your ESPHome YAML).
+
+![CN105 to ESP32 via bidirectional level shifter. The ESP32 5V pin is powered from the CN105 5V supply.](docs/cn105-esp32-level-shifter.jpg)
+
+#### Wiring
+
+| CN105 (5V side) | Level shifter | ESP32 (3.3V side) | Notes |
+| --------------- | ------------- | ----------------- | ----- |
+| 5V              | `HV`          | `5V`              | Powers both the shifter HV rail and the ESP32 |
+| GND             | `GND` (HV and LV) | `GND`         | Common ground |
+| —               | `LV`          | `3V3`             | 3.3V reference for the shifter LV rail |
+| RX (into HVAC)  | `HV1` ↔ `LV1` | UART TX           | ESP32 TX is shifted up to 5V |
+| TX (from HVAC)  | `HV2` ↔ `LV2` | UART RX           | HVAC TX is shifted down to 3.3V |
+| 12V             | —             | —                 | Leave disconnected |
+
+TX and RX must be crossed: ESP32 TX → heat pump RX, ESP32 RX ← heat pump TX. Unused shifter channels (`HV3`/`LV3`, `HV4`/`LV4`) can be left open.
+
+#### CN105 pinout
+
+The indoor-unit connector is a JST PA 5-pin header (housing [PAP-05V-S](https://www.digikey.com/en/products/detail/jst-sales-america-inc/PAP-05V-S/608655)). Pin 1 is typically nearest the board silkscreen `1` / the keyed edge of the housing.
+
+| Pin | Signal | Use |
+| --- | ------ | --- |
+| 1   | 12V    | Not used (leave empty) |
+| 2   | GND    | Ground |
+| 3   | 5V     | Power for the ESP32 `5V` pin and the shifter `HV` rail |
+| 4   | TX     | Data **from** the indoor unit (5V logic) → shifter HV → ESP32 RX |
+| 5   | RX     | Data **to** the indoor unit (5V logic) ← shifter HV ← ESP32 TX |
+
+> [!NOTE]
+> Some indoor units provide only limited current on the CN105 5V pin. Compact boards such as the XIAO series typically draw little enough to run from that rail. If the ESP32 brownouts, resets, or Wi-Fi is unstable, power it from the CN105 12V pin through a 5V regulator instead, and keep 12V off the ESP32 `5V` pin and GPIO.
+
+Connector part numbers and pre-crimped pigtails are listed in the [SwiCago/HeatPump README](https://github.com/SwiCago/HeatPump/blob/master/README.md#demo-circuit).
 
 ### Step 2: Using ESPHome
 
@@ -192,7 +232,9 @@ Recommended: start with `10s` and increase (e.g., `30s`) if you still miss early
 
 `installer_mode` enables an extended CN105 connection handshake (CONNECT command `0x5B`) instead of the standard handshake (`0x5A`). Some indoor units (notably some ducted SEZ variants) may require this to unlock installer/service privileges so that Function Settings (ISU / `hardware_settings`) return real values instead of `0`. Default is `false` for maximum compatibility.
 
-`fahrenheit_compatibility` improves compatibility with HomeAssistant installations using Fahrenheit units. Mitsubishi uses a custom lookup table to convert F to C which doesn't correspond to the actual math in all cases. This can result in external thermostats and HomeAssistant "disagreeing" on what the current setpoint is. Setting this value to `standard` (or `alt` for alternative conversion tables) forces the component to use the same lookup tables, resulting in more consistent display of setpoints. Recommended for Fahrenheit users. (See https://github.com/echavet/MitsubishiCN105ESPHome/pull/298.)
+`fahrenheit_compatibility` improves compatibility with HomeAssistant installations using Fahrenheit units. Mitsubishi uses a custom lookup table to convert F to C which doesn't correspond to the actual math in all cases. This can result in external thermostats and HomeAssistant "disagreeing" on what the current setpoint is. Setting this value to `standard` (or `alt` for alternative conversion tables) forces the component to use the same lookup tables, resulting in more consistent display of setpoints. For MSZ-A24NA and similar units, use `msz_a24na` to use the MSZ-A24NA Fahrenheit-to-Celsius table. Recommended for Fahrenheit users. (See https://github.com/echavet/MitsubishiCN105ESPHome/pull/298.)
+
+`msz_a24na_setpoint_table` enables the alternate temperature setpoint encoding used by some indoor units such as the MSZ-A24NA. Default is `false`. When enabled, setpoints are encoded/decoded with the A24NA lookup table and restricted to 16–31 °C in 0.5 °C steps. If you use Fahrenheit with an A24NA, pair this with `fahrenheit_compatibility: "msz_a24na"`.
 
 `use_as_operating_fallback` in the `stage_sensor` enables a fallback mechanism for the activity indicator (idle/heating/cooling/etc.). By default, the activity status is based on the compressor running state. When this option is enabled, the system uses an OR logic: it shows active status if the compressor is running OR if the stage sensor indicates activity (not IDLE). This is particularly useful for 2-stage heating systems where the second stage (e.g., gas heating) may be active while the compressor is off. (See https://github.com/echavet/MitsubishiCN105ESPHome/issues/277 and https://github.com/echavet/MitsubishiCN105ESPHome/issues/469)
 
@@ -209,9 +251,11 @@ climate:
         target_temperature: 1
         current_temperature: 0.5
     # Fahrenheit compatibility mode - uses Mitsubishi's "custom" unit conversions, set to
-    # "standard" (or "alt") for better support of Fahrenheit units in HomeAssistant.
-    # Options: "disabled" (default), "standard", "alt"
+    # "standard" (or "alt" or "msz_a24na") for better support of Fahrenheit units in HomeAssistant.
+    # Options: "disabled" (default), "standard", "alt", "msz_a24na"
     fahrenheit_compatibility: "disabled"
+    # MSZ-A24NA setpoint table - set to true for units that use the unique A24NA setpoint byte mapping
+    msz_a24na_setpoint_table: false
     # Timeout and communication settings
     remote_temperature_timeout: 30min
     remote_temperature_keepalive_interval: 20s # Auto re-send external temp (like Kumo)
@@ -651,9 +695,11 @@ climate:
         target_temperature: 1
         current_temperature: 0.5
     # Fahrenheit compatibility mode - uses Mitsubishi's "custom" unit conversions, set to
-    # "standard" (or "alt") for better support of Fahrenheit units in HomeAssistant.
-    # Options: "disabled" (default), "standard", "alt"
+    # "standard" (or "alt" or "msz_a24na") for better support of Fahrenheit units in HomeAssistant.
+    # Options: "disabled" (default), "standard", "alt", "msz_a24na"
     fahrenheit_compatibility: "disabled"
+    # MSZ-A24NA setpoint table - set to true for units that use the unique A24NA setpoint byte mapping
+    msz_a24na_setpoint_table: false
     # Timeout and communication settings
     remote_temperature_timeout: 30min
     remote_temperature_keepalive_interval: 20s # Auto re-send external temp (like Kumo)
@@ -765,8 +811,8 @@ climate:
     id: hp
     # ... other options ...
     remote_temperature_source:
-      sensor_id: ha_remote_temp       # References the sensor declared above
-      info:                           # Optional: exposes a text sensor showing the source name
+      sensor_id: ha_remote_temp # References the sensor declared above
+      info: # Optional: exposes a text sensor showing the source name
         name: "Remote Temp Source"
     remote_temperature_timeout: 30min
     remote_temperature_keepalive_interval: 20s
@@ -1108,6 +1154,7 @@ climate:
             1: "ON (Default)"
             2: "OFF"
 ```
+
 ## Experimental Features
 
 The following features are considered experimental. They rely on protocol bytes or behaviors that are not officially documented by Mitsubishi and may not work on all unit models. Community feedback is essential to validate and improve them.
@@ -1127,6 +1174,7 @@ climate:
 ```
 
 The sensor appears in Home Assistant with:
+
 - **Unit**: `%`
 - **Icon**: `mdi:water-percent`
 - **Category**: Diagnostic
@@ -1141,11 +1189,11 @@ Some Mitsubishi wall-mount units feature split vanes with two independent motors
 
 There are two split-vane configurations depending on your unit's hardware:
 
-| `vane_type` | Description | Tested on |
-|------------|-------------|-----------|
-| `standard` (default) | Single motor per vane axis — standard behavior | Most units |
-| `split_horizontal` | Dual horizontal (wide) vane motors — both left/right wide-vane motors are synchronized | MSZ-GE24NA (confirmed by [@polskikrol](https://github.com/polskikrol)) |
-| `split_vertical` | Dual vertical vane motors — experimental, awaiting community validation | MSZ-FH series (pending) |
+| `vane_type`          | Description                                                                            | Tested on                                                              |
+| -------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `standard` (default) | Single motor per vane axis — standard behavior                                         | Most units                                                             |
+| `split_horizontal`   | Dual horizontal (wide) vane motors — both left/right wide-vane motors are synchronized | MSZ-GE24NA (confirmed by [@polskikrol](https://github.com/polskikrol)) |
+| `split_vertical`     | Dual vertical vane motors — experimental, awaiting community validation                | MSZ-FH series (pending)                                                |
 
 #### Example: Split Horizontal Vane Configuration
 
@@ -1164,7 +1212,7 @@ climate:
       mode: [HEAT_COOL, COOL, HEAT, DRY, FAN_ONLY]
       fan_mode: [AUTO, QUIET, LOW, MEDIUM, HIGH]
       swing_mode: ["OFF", HORIZONTAL, VERTICAL]
-      vane_type: split_horizontal  # ← Synchronizes both horizontal vane motors
+      vane_type: split_horizontal # ← Synchronizes both horizontal vane motors
 ```
 
 #### Example: Split Vertical Vane Configuration (Experimental)
@@ -1180,7 +1228,7 @@ climate:
       name: Vertical Vane
     supports:
       swing_mode: ["OFF", VERTICAL]
-      vane_type: split_vertical  # ← Experimental: synchronizes both vertical vane motors
+      vane_type: split_vertical # ← Experimental: synchronizes both vertical vane motors
 ```
 
 > [!WARNING]
@@ -1192,56 +1240,57 @@ Since ESPHome 2026.4.0, a native `mitsubishi_cn105` component (by [@crnjan](http
 
 ### Feature Comparison
 
-| Feature | This Project (echavet) | Native ESPHome (crnjan) |
-|---------|:---------------------:|:----------------------:|
-| **Basic HVAC control** (power, mode, fan, temp) | ✅ | ✅ |
-| **Half-degree setpoint** (0.5°C steps) | ✅ | ✅ (PR [#15919](https://github.com/esphome/esphome/pull/15919)) |
-| **HEAT_COOL / AUTO mode** | ✅ Hybrid dual setpoint | ✅ HEAT_COOL mapping (PR [#15748](https://github.com/esphome/esphome/pull/15748)) |
-| **Dual setpoint support** | ✅ Native via `supports: dual_setpoint: true` | ❌ Single setpoint only |
-| **Vertical vane (swing) select** | ✅ 5 positions + SWING | ⏳ Draft PR [#15653](https://github.com/esphome/esphome/pull/15653) |
-| **Horizontal vane (wide vane) select** | ✅ All 8 positions + SWING | ⏳ Draft PR [#15653](https://github.com/esphome/esphome/pull/15653) |
-| **Dual/split vane support** | ✅ `vane_type: split_horizontal / split_vertical` | ❌ Not planned |
-| **Remote temperature sensor** | ✅ Built-in keep-alive + debounce + native binding | ⏳ Open PR [#15558](https://github.com/esphome/esphome/pull/15558) (lambda-only) |
-| **Remote temperature timeout / fallback** | ✅ Configurable auto-revert to internal sensor | ❌ Manual only |
-| **Fahrenheit compatibility** | ✅ Standard + Alt lookup tables | ⏳ Draft PR [#15488](https://github.com/esphome/esphome/pull/15488) |
-| **Compressor frequency sensor** | ✅ | ❌ Not planned |
-| **Input power sensor** | ✅ | ❌ Not planned |
-| **Energy (kWh) sensor** | ✅ | ❌ Not planned |
-| **Outside air temperature** | ✅ | ❌ Not planned |
-| **Operating status / hvac_action** | ✅ Based on compressor state | ❌ |
-| **Stage / Sub Mode / Auto Sub Mode** | ✅ Diagnostic sensors | ❌ |
-| **Runtime hours sensor** | ✅ | ❌ |
-| **iSee sensor** | ✅ | ❌ |
-| **Hardware settings (ISU / Function codes)** | ✅ Read & Write (0x20/0x22 packets) | ❌ Not planned |
-| **Installer mode (0x5B handshake)** | ✅ | ❌ |
-| **Air purifier / Night mode / Circulator** | ✅ Switches (0x08 packets) | ❌ |
-| **Airflow control select** | ✅ | ❌ |
-| **HACS integration (Climate Proxy)** | ✅ Dynamic single/dual slider UI | N/A (native HA integration) |
-| **ESP8266 support** | ✅ | ✅ |
-| **ESP32 (Arduino + IDF)** | ✅ | ✅ |
-| **RP2040 / BK72xx** | ❌ | ✅ |
+| Feature                                         |               This Project (echavet)               |                              Native ESPHome (crnjan)                              |
+| ----------------------------------------------- | :------------------------------------------------: | :-------------------------------------------------------------------------------: |
+| **Basic HVAC control** (power, mode, fan, temp) |                         ✅                         |                                        ✅                                         |
+| **Half-degree setpoint** (0.5°C steps)          |                         ✅                         |          ✅ (PR [#15919](https://github.com/esphome/esphome/pull/15919))          |
+| **HEAT_COOL / AUTO mode**                       |              ✅ Hybrid dual setpoint               | ✅ HEAT_COOL mapping (PR [#15748](https://github.com/esphome/esphome/pull/15748)) |
+| **Dual setpoint support**                       |   ✅ Native via `supports: dual_setpoint: true`    |                              ❌ Single setpoint only                              |
+| **Vertical vane (swing) select**                |               ✅ 5 positions + SWING               |        ⏳ Draft PR [#15653](https://github.com/esphome/esphome/pull/15653)        |
+| **Horizontal vane (wide vane) select**          |             ✅ All 8 positions + SWING             |        ⏳ Draft PR [#15653](https://github.com/esphome/esphome/pull/15653)        |
+| **Dual/split vane support**                     | ✅ `vane_type: split_horizontal / split_vertical`  |                                  ❌ Not planned                                   |
+| **Remote temperature sensor**                   | ✅ Built-in keep-alive + debounce + native binding | ⏳ Open PR [#15558](https://github.com/esphome/esphome/pull/15558) (lambda-only)  |
+| **Remote temperature timeout / fallback**       |   ✅ Configurable auto-revert to internal sensor   |                                  ❌ Manual only                                   |
+| **Fahrenheit compatibility**                    |          ✅ Standard + Alt lookup tables           |        ⏳ Draft PR [#15488](https://github.com/esphome/esphome/pull/15488)        |
+| **Compressor frequency sensor**                 |                         ✅                         |                                  ❌ Not planned                                   |
+| **Input power sensor**                          |                         ✅                         |                                  ❌ Not planned                                   |
+| **Energy (kWh) sensor**                         |                         ✅                         |                                  ❌ Not planned                                   |
+| **Outside air temperature**                     |                         ✅                         |                                  ❌ Not planned                                   |
+| **Operating status / hvac_action**              |            ✅ Based on compressor state            |                                        ❌                                         |
+| **Stage / Sub Mode / Auto Sub Mode**            |               ✅ Diagnostic sensors                |                                        ❌                                         |
+| **Runtime hours sensor**                        |                         ✅                         |                                        ❌                                         |
+| **iSee sensor**                                 |                         ✅                         |                                        ❌                                         |
+| **Hardware settings (ISU / Function codes)**    |        ✅ Read & Write (0x20/0x22 packets)         |                                  ❌ Not planned                                   |
+| **Installer mode (0x5B handshake)**             |                         ✅                         |                                        ❌                                         |
+| **Air purifier / Night mode / Circulator**      |             ✅ Switches (0x08 packets)             |                                        ❌                                         |
+| **Airflow control select**                      |                         ✅                         |                                        ❌                                         |
+| **HACS integration (Climate Proxy)**            |          ✅ Dynamic single/dual slider UI          |                            N/A (native HA integration)                            |
+| **ESP8266 support**                             |                         ✅                         |                                        ✅                                         |
+| **ESP32 (Arduino + IDF)**                       |                         ✅                         |                                        ✅                                         |
+| **RP2040 / BK72xx**                             |                         ❌                         |                                        ✅                                         |
 
 ### Architecture & Reliability Comparison
 
-| Aspect | This Project | Native ESPHome |
-|--------|:----------:|:------------:|
-| **Installation** | `external_components` reference | Zero-config, built into ESPHome core |
-| **UART communication** | Non-blocking, byte-by-byte in `loop()` with debounce and retry. Battle-tested across 100+ real units | Non-blocking FSM with `FrameParser`. Clean design but field-tested on fewer configurations |
-| **Connection recovery** | Multi-layer: UART reinit fallback for ESP-IDF 5.4.x regressions, auto-reconnect, pending packet queue | State machine with `READ_TIMEOUT` state for retry |
-| **Request orchestration** | `RequestScheduler` — prioritized, round-robin multi-packet cycling (settings, room temp, status, timers, HVAC options, standby) | Simple sequential poll: settings → room temp only |
-| **Concurrency protection** | Mutex (ESP32) / emulated mutex (ESP8266) on settings writes | Single-threaded state machine (no contention risk) |
-| **State management** | Distributed booleans (pragmatic, field-proven) | Formal `enum class State` FSM with validated transitions |
-| **Frame parsing** | Inline in main class, overflow-protected (64-byte buffer) | Encapsulated `FrameParser` class, template callback-based (32-byte buffer) |
-| **Type safety** | `const char*` parallel arrays (legacy SwiCago pattern) | `enum class` + `std::optional` + `constexpr` lookup |
-| **Temperature encoding** | Dual A/B encoding, auto-detect | Dual A/B encoding, auto-detect |
-| **Unit test suite** | ❌ (community-validated) | ✅ Full C++ test coverage |
-| **ESPHome API stability** | ⚠️ May require updates on ESPHome major releases | ✅ Maintained by core team, no breaking changes |
-| **Binary size** | ~5900 lines C++ (all features included) | ~700 lines C++ (minimal feature set) |
-| **Codebase maturity** | 2+ years, 600+ issues/PRs, active community | Released April 2026, rapidly evolving |
+| Aspect                     |                                                          This Project                                                           |                                       Native ESPHome                                       |
+| -------------------------- | :-----------------------------------------------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------------------: |
+| **Installation**           |                                                 `external_components` reference                                                 |                            Zero-config, built into ESPHome core                            |
+| **UART communication**     |              Non-blocking, byte-by-byte in `loop()` with debounce and retry. Battle-tested across 100+ real units               | Non-blocking FSM with `FrameParser`. Clean design but field-tested on fewer configurations |
+| **Connection recovery**    |              Multi-layer: UART reinit fallback for ESP-IDF 5.4.x regressions, auto-reconnect, pending packet queue              |                     State machine with `READ_TIMEOUT` state for retry                      |
+| **Request orchestration**  | `RequestScheduler` — prioritized, round-robin multi-packet cycling (settings, room temp, status, timers, HVAC options, standby) |                     Simple sequential poll: settings → room temp only                      |
+| **Concurrency protection** |                                   Mutex (ESP32) / emulated mutex (ESP8266) on settings writes                                   |                     Single-threaded state machine (no contention risk)                     |
+| **State management**       |                                         Distributed booleans (pragmatic, field-proven)                                          |                  Formal `enum class State` FSM with validated transitions                  |
+| **Frame parsing**          |                                    Inline in main class, overflow-protected (64-byte buffer)                                    |         Encapsulated `FrameParser` class, template callback-based (32-byte buffer)         |
+| **Type safety**            |                                     `const char*` parallel arrays (legacy SwiCago pattern)                                      |                    `enum class` + `std::optional` + `constexpr` lookup                     |
+| **Temperature encoding**   |                                                 Dual A/B encoding, auto-detect                                                  |                               Dual A/B encoding, auto-detect                               |
+| **Unit test suite**        |                                                    ❌ (community-validated)                                                     |                                 ✅ Full C++ test coverage                                  |
+| **ESPHome API stability**  |                                        ⚠️ May require updates on ESPHome major releases                                         |                      ✅ Maintained by core team, no breaking changes                       |
+| **Binary size**            |                                             ~5900 lines C++ (all features included)                                             |                            ~700 lines C++ (minimal feature set)                            |
+| **Codebase maturity**      |                                           2+ years, 600+ issues/PRs, active community                                           |                           Released April 2026, rapidly evolving                            |
 
 ### When to Use Which?
 
 **Choose this project** if you need:
+
 - 🔧 **Full diagnostic visibility** — compressor frequency, power consumption, energy tracking, operating stages
 - 🌡️ **Advanced remote temperature** — built-in keep-alive, auto-timeout fallback, native sensor binding
 - 🎛️ **Complete vane control** — all positions, dual/split vane support for multi-motor units
@@ -1251,6 +1300,7 @@ Since ESPHome 2026.4.0, a native `mitsubishi_cn105` component (by [@crnjan](http
 - 🛡️ **Proven reliability** — battle-tested firmware running on hundreds of units for 2+ years
 
 **Choose the native ESPHome component** if you need:
+
 - 🚀 **Simplest setup** — 5-line YAML, no `external_components` reference
 - 🔒 **Core team maintenance** — guaranteed API compatibility with ESPHome updates
 - ✅ **Unit-tested codebase** — formal state machine, clean architecture

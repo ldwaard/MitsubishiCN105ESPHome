@@ -1,5 +1,6 @@
 #include "cn105.h"
 
+#include <cmath>
 #include <map>
 
 using namespace esphome;
@@ -182,20 +183,7 @@ void CN105Climate::getSettingsFromResponsePacket() {
     ESP_LOGD("Decoder", "[iSee  : %d]", receivedSettings.iSee);
     ESP_LOGD("Decoder", "[Mode  : %s]", receivedSettings.mode);
 
-    if (data[11] != 0x00) {
-        int temp = data[11];
-        temp -= 128;
-        receivedSettings.temperature = (float)temp / 2;
-        this->use_temperature_encoding_b_ = true;
-    } else {
-        auto temp_opt = cn105_protocol::lookup_value_opt(TEMP_MAP, TEMP, 16, data[5]);
-        if (temp_opt) {
-            receivedSettings.temperature = static_cast<float>(*temp_opt);
-        } else {
-            ESP_LOGW("Decoder", "Unknown temperature byte 0x%02X — keeping previous value", data[5]);
-            receivedSettings.temperature = this->currentSettings.temperature;
-        }
-    }
+    receivedSettings.temperature = this->decodeSettingsTemperature(data);
 
     ESP_LOGD("Decoder", "[Temp °C: %f]", receivedSettings.temperature);
 
@@ -277,7 +265,7 @@ void CN105Climate::getSettingsFromResponsePacket() {
                     receivedRunStates.airflow_control = this->currentRunStates.airflow_control;
                 }
             } else {
-                // For some reason data[10] is 0x80, but the i-See sensor is not active. 
+                // For some reason data[10] is 0x80, but the i-See sensor is not active.
                 // Some units let us do this, but the real mode is unknown (might be powersave) and the i-See sensor does not get activated.
                 //receivedRunStates.airflow_control = "N/A";
                 ESP_LOGD("Decoder", "i-See sensor not present/active.");
@@ -429,7 +417,7 @@ void CN105Climate::getHVACOptionsFromResponsePacket() {
 void CN105Climate::terminateCycle() {
     if (this->shouldSendExternalTemperature_) {
         // We will receive ACK packet for this.
-        // Sending WantedSettings must be delayed in this case (lastSend timestamp updated).        
+        // Sending WantedSettings must be delayed in this case (lastSend timestamp updated).
         ESP_LOGD(LOG_REMOTE_TEMP, "Sending remote temperature...");
         this->sendRemoteTemperature();
     }
@@ -601,18 +589,9 @@ void CN105Climate::publishStateToHA(heatpumpSettings& settings) {
         checkWideVaneSettings(settings);
     }
 
-    // HA Temp
-    // Ignorer temporairement une consigne entrante si une consigne utilisateur est en cours
-    bool hasPendingUserTemp = (this->wantedSettings.temperature != -1.0f) && (this->wantedSettings.hasChanged) && (!this->wantedSettings.hasBeenSent);
-    uint32_t graceWindowMs = this->get_update_interval() + DEFER_SCHEDULE_UPDATE_LOOP_DELAY;
-    bool graceAfterSend = (this->wantedSettings.hasBeenSent) && ((CUSTOM_MILLIS - this->wantedSettings.lastChange) < graceWindowMs);
-    if (!hasPendingUserTemp && !graceAfterSend) {
-        if (this->wantedSettings.temperature == -1) { // to prevent overwriting a user demand
-            this->updateTargetTemperaturesFromSettings(settings.temperature);
-            this->currentSettings.temperature = settings.temperature;
-        }
-    } else {
-        ESP_LOGD(LOG_SETTINGS_TAG, "Ignoring incoming setpoint due to pending user change or grace window");
+    if (this->shouldApplyIncomingSetpoint(settings)) {
+        this->updateTargetTemperaturesFromSettings(settings.temperature);
+        this->currentSettings.temperature = settings.temperature;
     }
 
     this->currentSettings.iSee = settings.iSee;
@@ -629,7 +608,7 @@ void CN105Climate::publishStateToHA(heatpumpSettings& settings) {
 void CN105Climate::heatpumpUpdate(heatpumpSettings& settings) {
     // settings correponds to current settings
     ESP_LOGV(LOG_SETTINGS_TAG, "Settings received");
-    // if received settings are different from current settings 
+    // if received settings are different from current settings
     if (settings != this->currentSettings) {
         ESP_LOGI(LOG_SETTINGS_TAG, "Settings changed, updating HA states");
         this->debugSettings("current", this->currentSettings);
@@ -642,8 +621,13 @@ void CN105Climate::heatpumpUpdate(heatpumpSettings& settings) {
 }
 
 void CN105Climate::checkVaneSettings(heatpumpSettings& settings, bool updateCurrentSettings) {
-    if (this->hasChanged(currentSettings.vane, settings.vane, "vane")) {    // widevane setting change ?
-        ESP_LOGI(TAG, "vane setting changed");
+    if (this->shouldIgnoreIncomingVane(settings)) {
+        updateExtraSelectComponents(settings);
+        return;
+    }
+
+    if (this->hasChanged(currentSettings.vane, settings.vane, "vane")) {
+        ESP_LOGI(LOG_SETTINGS_TAG, "vane setting changed");
 
         //this->debugSettings("settings", settings);
 
@@ -816,4 +800,101 @@ void CN105Climate::checkPowerAndModeSettings(heatpumpSettings& settings, bool up
             this->mode = climate::CLIMATE_MODE_OFF;
         }
     }
+}
+
+// ════════════════════════════════════════════════════════════════
+// Composed method helpers — temperature decoding
+// ════════════════════════════════════════════════════════════════
+
+float CN105Climate::decodeSettingsTemperature(const uint8_t* data) {
+    if (this->use_msz_a24na_setpoint_table_) {
+        return cn105_protocol::decode_msz_a24na_setpoint(data[5]);
+    }
+    if (data[11] == 0x80) {
+        ESP_LOGD("Decoder", "data[11]=0x80 unused, keeping previous");
+        return this->currentSettings.temperature;
+    }
+    if (data[11] != 0x00) {
+        float temp = static_cast<float>(data[11] - 128) / 2.0f;
+        if (!this->use_temperature_encoding_b_latched_) {
+            ESP_LOGI("Decoder", "Latching encoding B");
+            this->use_temperature_encoding_b_latched_ = true;
+        }
+        this->use_temperature_encoding_b_ = true;
+        return temp;
+    }
+    if (this->use_temperature_encoding_b_latched_) {
+        auto opt = cn105_protocol::lookup_value_opt(TEMP_MAP, TEMP, 16, data[5]);
+        if (opt) {
+            ESP_LOGD("Decoder", "Encoding B latched, fallback to A: %.1f", static_cast<float>(*opt));
+            return static_cast<float>(*opt);
+        }
+        ESP_LOGW("Decoder", "Encoding A fallback failed (0x%02X)", data[5]);
+        return this->currentSettings.temperature;
+    }
+    auto opt = cn105_protocol::lookup_value_opt(TEMP_MAP, TEMP, 16, data[5]);
+    if (opt) {
+        return static_cast<float>(*opt);
+    }
+    ESP_LOGW("Decoder", "Unknown temp byte 0x%02X", data[5]);
+    return this->currentSettings.temperature;
+}
+
+// ════════════════════════════════════════════════════════════════
+// Composed method helpers — setpoint grace window
+// ════════════════════════════════════════════════════════════════
+
+bool CN105Climate::hasPendingUserTemperature() const {
+    return (this->wantedSettings.temperature != -1.0f) &&
+           (this->wantedSettings.hasChanged) &&
+           (!this->wantedSettings.hasBeenSent);
+}
+
+bool CN105Climate::isWithinPostSendGrace() const {
+    if (!this->wantedSettings.hasBeenSent) return false;
+    uint32_t graceMs = this->update_interval_ + DEFER_SCHEDULE_UPDATE_LOOP_DELAY;
+    return (CUSTOM_MILLIS - this->wantedSettings.lastChange) < graceMs;
+}
+
+bool CN105Climate::disagreesWithLastUserSetpoint(float incoming) const {
+    if (this->wantedSettings.last_user_temperature <= 0) return false;
+    if (this->wantedSettings.last_user_temperature_ms == 0) return false;
+    uint32_t elapsed = CUSTOM_MILLIS - this->wantedSettings.last_user_temperature_ms;
+    if (elapsed >= RECEIVED_SETPOINT_GRACE_WINDOW_MS) return false;
+    float diff = std::abs(incoming - this->wantedSettings.last_user_temperature);
+    return diff > 0.5f;
+}
+
+bool CN105Climate::shouldApplyIncomingSetpoint(const heatpumpSettings& settings) {
+    if (this->wantedSettings.temperature != -1) return false;
+    if (this->hasPendingUserTemperature()) {
+        ESP_LOGD(LOG_SETTINGS_TAG, "Ignoring setpoint: pending user temp");
+        return false;
+    }
+    if (this->isWithinPostSendGrace()) {
+        ESP_LOGD(LOG_SETTINGS_TAG, "Ignoring setpoint: post-send grace");
+        return false;
+    }
+    if (this->disagreesWithLastUserSetpoint(settings.temperature)) {
+        ESP_LOGD(LOG_SETTINGS_TAG, "Ignoring setpoint: disagrees with user (%.1f vs %.1f)",
+            settings.temperature, this->wantedSettings.last_user_temperature);
+        return false;
+    }
+    return true;
+}
+
+// ════════════════════════════════════════════════════════════════
+// Composed method helpers — vane grace window
+// ════════════════════════════════════════════════════════════════
+
+bool CN105Climate::shouldIgnoreIncomingVane(const heatpumpSettings& settings) const {
+    if (this->wantedSettings.last_user_vane == nullptr) return false;
+    if (this->wantedSettings.last_user_vane_ms == 0) return false;
+    uint32_t elapsed = CUSTOM_MILLIS - this->wantedSettings.last_user_vane_ms;
+    if (elapsed >= RECEIVED_SETPOINT_GRACE_WINDOW_MS) return false;
+    if (settings.vane == nullptr) return false;
+    if (strcmp(settings.vane, this->wantedSettings.last_user_vane) == 0) return false;
+    ESP_LOGD(LOG_SETTINGS_TAG, "Vane grace: ignoring %s, user sent %s",
+        settings.vane, this->wantedSettings.last_user_vane);
+    return true;
 }

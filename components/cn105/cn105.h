@@ -82,15 +82,16 @@ namespace esphome {
         void set_stage_sensor(esphome::text_sensor::TextSensor* Stage_sensor);
         void set_use_stage_for_operating_status(bool value);
         void set_use_fahrenheit_support_mode(FahrenheitMode mode);
+        void set_msz_a24na_setpoint_table(bool value);
         void set_air_purifier_switch(HVACOptionSwitch* air_purifier_switch);
         void set_night_mode_switch(HVACOptionSwitch* night_mode_switch);
         void set_circulator_switch(HVACOptionSwitch* circulator_switch);
 
         void add_hardware_setting(HardwareSettingSelect* setting);
         void set_hardware_settings_interval(uint32_t interval_ms) { this->hardware_settings_interval_ms_ = interval_ms; }
-        
+
         // Deprecated: kept for backward compatibility, will map to VaneType::SPLIT_HORIZONTAL
-        void set_horizontal_vanes(int horizontal_vanes) { 
+        void set_horizontal_vanes(int horizontal_vanes) {
             if (horizontal_vanes > 1) {
                 this->vane_type_ = VaneType::SPLIT_HORIZONTAL;
             }
@@ -109,7 +110,7 @@ namespace esphome {
         void set_remote_temp_source(esphome::sensor::Sensor* source);
         void set_remote_temp_source_info_sensor(esphome::text_sensor::TextSensor* info_sensor);
         void set_hp_uptime_connection_sensor(cn105::HpUpTimeConnectionSensor* hp_up_connection_sensor);
-        
+
         void set_remote_temperature_control_sensor(esphome::binary_sensor::BinarySensor* sensor);
         void set_remote_temperature_margin(float margin);
 
@@ -408,6 +409,22 @@ namespace esphome {
         void updateExtraSelectComponents(heatpumpSettings& settings);
         void updateTargetTemperaturesFromSettings(float temperature);
 
+        // Composed method helpers — temperature decoding
+        float decodeSettingsTemperature(const uint8_t* data);
+
+        // Composed method helpers — setpoint grace window
+        bool shouldApplyIncomingSetpoint(const heatpumpSettings& settings);
+        bool hasPendingUserTemperature() const;
+        bool isWithinPostSendGrace() const;
+        bool disagreesWithLastUserSetpoint(float incoming) const;
+
+        // Composed method helpers — vane grace window
+        bool shouldIgnoreIncomingVane(const heatpumpSettings& settings) const;
+
+        // Composed method helpers — packet building
+        void applyVaneToPacket(uint8_t* packet);
+        const char* vaneSettingForPacket() const;
+
         //void statusChanged();
         void updateAction();
         void setActionIfOperatingTo(climate::ClimateAction action);
@@ -490,6 +507,8 @@ namespace esphome {
         heatpumpFunctions functions;
 
         bool use_temperature_encoding_b_ = false;
+        bool use_temperature_encoding_b_latched_ = false;  // Once encoding B is detected, stay latched
+        bool use_msz_a24na_setpoint_table_ = false;
         bool wideVaneAdj;
         bool autoUpdate;
         bool firstRun;
