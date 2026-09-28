@@ -224,6 +224,7 @@ climate:
     # Various optional sensors, not all sensors are supported by all heatpumps
     compressor_frequency_sensor:
       name: Compressor Frequency
+      # report_when_idle: true     # set to false to report 0 Hz while this indoor unit is idle (filters noise on some models, e.g. PAA/PUZ)
       entity_category: diagnostic
       disabled_by_default: true
     outside_air_temperature_sensor:
@@ -662,6 +663,7 @@ climate:
     # Various optional sensors, not all sensors are supported by all heatpumps
     compressor_frequency_sensor:
       name: Compressor Frequency
+      # report_when_idle: true     # set to false to report 0 Hz while this indoor unit is idle (filters noise on some models, e.g. PAA/PUZ)
       entity_category: diagnostic
       disabled_by_default: true
     outside_air_temperature_sensor:
