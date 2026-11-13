@@ -167,7 +167,7 @@ void CN105Climate::registerHardwareSettingsRequests() {
     InfoRequest r_funcs1("functions1", "Functions Part 1", 0x20, 3, 0, interval, LOG_FUNCTIONS_TAG);
     r_funcs1.onResponse = [this, check_and_disable](CN105Climate& self) {
         // Log the raw packet and decoded pairs even if the unit returns all zeros
-        self.hpPacketDebug(self.data, self.parser_.data_length(), "RX 0x20");
+        self.hpPacketDebug(self.parser_.raw(), self.parser_.frame_size(), "RX 0x20");
         if (check_and_disable(self, 0x20)) {
             ESP_LOGD(LOG_FUNCTIONS_TAG, "Got functions packet 1 (via InfoRequest)");
         }
@@ -181,7 +181,7 @@ void CN105Climate::registerHardwareSettingsRequests() {
     InfoRequest r_funcs2("functions2", "Functions Part 2", 0x22, 3, 0, interval, LOG_FUNCTIONS_TAG);
     r_funcs2.onResponse = [this, check_and_disable](CN105Climate& self) {
         // Log the raw packet and decoded pairs even if the unit returns all zeros
-        self.hpPacketDebug(self.data, self.parser_.data_length(), "RX 0x22");
+        self.hpPacketDebug(self.parser_.raw(), self.parser_.frame_size(), "RX 0x22");
         if (check_and_disable(self, 0x22)) {
             ESP_LOGD(LOG_FUNCTIONS_TAG, "Got functions packet 2 (via InfoRequest)");
             self.functionsArrived();

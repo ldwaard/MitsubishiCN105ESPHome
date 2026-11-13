@@ -63,6 +63,12 @@ void logCheckWantedSettingsMutex(wantedHeatpumpSettings& settings) {
 
 }
 void CN105Climate::controlDelegate(const esphome::climate::ClimateCall& call) {
+    if (this->is_pac_passthrough()) {
+        ESP_LOGD("control", "Ignoring command: PAC passthrough is active");
+        this->publish_state();   // snap the UI back to the real state
+        return;
+    }
+
     ESP_LOGD("control", "espHome control() interface method called...");
     bool updated = false;
 
@@ -250,10 +256,13 @@ void CN105Climate::set_remote_temperature(float setting) {
     setting = cn105::HeatPumpProtocol::normalize_remote_temperature(setting, this->fahrenheitSupport_);
     this->remoteTemperature_ = setting;
     this->shouldSendExternalTemperature_ = true;
-    ESP_LOGD(LOG_REMOTE_TEMP, "setting remote temperature to %f", this->remoteTemperature_);
-    this->pingExternalTemperature();
+    ESP_LOGD(LOG_REMOTE_TEMP, "setting remote temperature to %.1f", this->remoteTemperature_);
     if (setting > 0) this->startRemoteTempKeepAlive();
     else this->stopRemoteTempKeepAlive();
+        // Reset the watchdog timeout (HA sent us a fresh value)
+        this->pingExternalTemperature();
+        // Nothing left to time out
+        this->cancel_timeout(SHEDULER_REMOTE_TEMP_TIMEOUT);
 }
 
 // --- HEAT_COOL band persistence (opt-in: supports.restore_setpoints) ----------------

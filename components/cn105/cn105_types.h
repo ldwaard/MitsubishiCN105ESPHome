@@ -129,6 +129,8 @@ static const char* AUTO_SUB_MODE_MAP[7] = { "AUTO_OFF", "AUTO_COOL", "AUTO_HEAT"
 
 static const int TIMER_INCREMENT_MINUTES = 10;
 
+static const uint8_t REMOTE_TEMP = 0x07;
+
 static const uint8_t FUNCTIONS_SET_PART1 = 0x1F;
 static const uint8_t FUNCTIONS_GET_PART1 = 0x20;
 static const uint8_t FUNCTIONS_SET_PART2 = 0x21;

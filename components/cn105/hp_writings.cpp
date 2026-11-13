@@ -334,7 +334,7 @@ void CN105Climate::createInfoPacket(uint8_t* packet, uint8_t code) {
 }
 
 
-void CN105Climate::sendRemoteTemperaturePacket() {
+bool CN105Climate::sendRemoteTemperaturePacket() {
     if (!this->profile_->allow_operation(cn105::ProfileFeature::REMOTE_TEMPERATURE)) return;
 
     // Build and send the remote temperature packet (0x07) without affecting watchdog/keep-alive timers
@@ -370,7 +370,7 @@ void CN105Climate::sendRemoteTemperaturePacket() {
 
         ESP_LOGD(LOG_REMOTE_TEMP, "Debounce: skipping remote temp send (same value %.1f, %lu ms since last send, min interval %lu ms, skip #%d)",
             this->remoteTemperature_, (unsigned long)elapsed, (unsigned long)min_interval, this->remote_temp_debounce_skip_count_);
-        return;
+        return false;
     }
 
     // Reset debounce skip counter on successful send
@@ -387,11 +387,14 @@ void CN105Climate::sendRemoteTemperaturePacket() {
 
     ESP_LOGD(LOG_REMOTE_TEMP, "Sending remote temperature packet... -> %.1f%s",
         this->remoteTemperature_, temp_changed ? " (changed)" : " (keep-alive)");
-    writePacket(packet, PACKET_LEN);
+    // In passthrough the heat pump is only addressed every keep-alive interval, which can
+    // exceed isHeatpumpConnectionActive()'s window, and that check would trigger a reconnect.
+    writePacket(packet, PACKET_LEN, !this->is_pac_passthrough());
 
     // Update debounce tracking
     this->last_remote_temp_send_ms_ = now;
     this->last_remote_temp_sent_ = this->remoteTemperature_;
+    return true;
 }
 
 void CN105Climate::sendRemoteTemperature() {
