@@ -41,5 +41,9 @@ bool CN105Climate::setFunctions(heatpumpFunctions const& functions) {
     writePacket(packet2, PACKET_LEN);
     //readPacket();
 
+    // The PAC cache's function settings replies are now stale; the follow-up read refills them.
+    this->invalidatePacCacheEntry(FUNCTIONS_GET_PART1);
+    this->invalidatePacCacheEntry(FUNCTIONS_GET_PART2);
+
     return true;
 }

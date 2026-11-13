@@ -29,6 +29,25 @@ inline uint8_t checksum(const uint8_t* bytes, int len) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// PAC UART
+// ════════════════════════════════════════════════════════════════
+
+/// Build a complete CN105 frame: FC cmd 01 30 len payload... checksum.
+/// @return total frame size (len + 6). `frame_buffer` must hold at least len + 6 bytes.
+inline int build_frame(uint8_t cmd, const uint8_t* payload, uint8_t len, uint8_t* frame_buffer) {
+    frame_buffer[0] = 0xFC;
+    frame_buffer[1] = cmd;
+    frame_buffer[2] = 0x01;
+    frame_buffer[3] = 0x30;
+    frame_buffer[4] = len;
+    if (len > 0 && payload != nullptr) {
+        std::memcpy(&frame_buffer[5], payload, len);
+    }
+    frame_buffer[5 + len] = checksum(frame_buffer, 5 + len);
+    return len + 6;
+}
+
+// ════════════════════════════════════════════════════════════════
 // Temperature decoding / encoding
 // ════════════════════════════════════════════════════════════════
 
@@ -74,6 +93,14 @@ inline void encode_remote_temperature(float temperature, uint8_t& enc_a, uint8_t
     float rounded = std::round(temperature * 2.0f);
     enc_a = static_cast<uint8_t>(rounded - 17);
     enc_b = static_cast<uint8_t>(rounded + 128);
+}
+
+/// Inverse of encode_remote_temperature(). Encoding B is used when non-zero.
+inline float decode_remote_temperature(uint8_t enc_a, uint8_t enc_b) {
+    if (enc_b != 0) {
+        return static_cast<float>(enc_b - 128) / 2.0f;
+    }
+    return static_cast<float>(enc_a + 17) / 2.0f;
 }
 
 /// Decode an MSZ-A24NA setpoint byte (data[5]) into °C.
@@ -279,6 +306,94 @@ inline bool vane_disagrees_within_grace(
 /// Check if data[11]=0x80 indicates unused temperature slot.
 inline bool is_temp_byte_unused(uint8_t data11) {
     return data11 == 0x80;
+}
+
+/// Whether the Home Assistant heartbeat requirement is currently satisfied.
+/// Unsigned subtraction keeps this correct across millis() rollover.
+inline bool is_ha_heartbeat_fresh(uint32_t last_heartbeat_ms, uint32_t now_ms, uint32_t timeout_ms) {
+    return (timeout_ms == UINT32_MAX) || ((now_ms - last_heartbeat_ms) < timeout_ms);
+}
+
+/// Remote temperature to send to the heat pump during PAC passthrough.
+///   - Home Assistant's value while it is set (> 0).
+///   - Otherwise the controller's last value, if it is set and no older than one keep-alive
+///     interval (`default_keepalive_interval_ms` when the keep-alive is disabled), since the
+///     controller resends it periodically.
+///   - Otherwise 0: revert to the heat pump's internal sensor.
+/// Unsigned subtraction keeps the age correct across millis() rollover.
+inline float passthrough_remote_temperature(
+    float ha_temperature,
+    float controller_temperature,
+    uint32_t controller_ms,
+    uint32_t now_ms,
+    uint32_t keepalive_interval_ms,
+    uint32_t default_keepalive_interval_ms
+) {
+    if (ha_temperature > 0) {
+        return ha_temperature;
+    }
+    const uint32_t max_age_ms = keepalive_interval_ms > 0 ? keepalive_interval_ms : default_keepalive_interval_ms;
+    if (controller_temperature > 0 && (now_ms - controller_ms) <= max_age_ms) {
+        return controller_temperature;
+    }
+    return 0;
+}
+
+/// Decide whether the upstream controller (PAC) should own the heat pump bus.
+///
+/// Hysteresis rules, so a flapping Home Assistant connection cannot bounce the bus:
+///   - Forced (switch on)           -> always passthrough.
+///   - Currently in passthrough     -> stay until HA has been continuously available
+///                                     for `leave_stable_ms`.
+///   - Currently in normal mode     -> enter once HA has been continuously unavailable
+///                                     for `enter_timeout_ms` (UINT32_MAX = never enter automatically).
+///
+/// @param home_assistant_state_age_ms  Time since HA availability last changed.
+inline bool should_pac_passthrough_be_active(
+    bool passthrough_currently_active,
+    bool passthrough_forced,
+    bool home_assistant_available,
+    uint32_t home_assistant_state_age_ms,
+    uint32_t enter_timeout_ms,
+    uint32_t leave_stable_ms
+) {
+    if (passthrough_forced) {
+        return true;
+    }
+
+    if (passthrough_currently_active) {
+        const bool home_assistant_stable = home_assistant_state_age_ms >= leave_stable_ms;
+        return !home_assistant_available || !home_assistant_stable;
+    }
+
+    const bool automatic_entry_enabled = enter_timeout_ms != UINT32_MAX;
+    const bool home_assistant_timed_out = home_assistant_state_age_ms >= enter_timeout_ms;
+    return !home_assistant_available && automatic_entry_enabled && home_assistant_timed_out;
+}
+
+/// Request codes the ESP polls, and therefore can answer for the upstream controller.
+inline constexpr uint8_t kPacCacheableCodes[] = {0x02, 0x03, 0x04, 0x06, 0x09, 0x42, 0x20, 0x22};
+inline constexpr int kPacCacheSlotCount = sizeof(kPacCacheableCodes) / sizeof(kPacCacheableCodes[0]);
+
+/// @return slot index for `code`, or -1 if the code is not cacheable.
+inline int pac_cache_index_for_code(uint8_t code) {
+    for (int slot_index = 0; slot_index < kPacCacheSlotCount; slot_index++) {
+        if (kPacCacheableCodes[slot_index] == code) {
+            return slot_index;
+        }
+    }
+    return -1;
+}
+
+/// Function settings GET code whose cached reply a function SET makes stale:
+/// 0x1F (part 1) -> 0x20, 0x21 (part 2) -> 0x22.
+/// @return the GET code, or 0 if `set_code` is not a function settings SET.
+inline uint8_t functions_get_code_for_set(uint8_t set_code) {
+    switch (set_code) {
+    case 0x1F: return 0x20;
+    case 0x21: return 0x22;
+    default: return 0;
+    }
 }
 
 }  // namespace cn105_protocol

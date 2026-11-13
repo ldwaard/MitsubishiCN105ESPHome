@@ -241,6 +241,7 @@ void CN105Climate::debugSettingsAndStatus(const char* settingName, heatpumpSetti
 }
 
 void CN105Climate::hpPacketDebug(const uint8_t* packet, unsigned int length, const char* packetDirection, const char* log_prefix) {
+#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_DEBUG
     if (length < 5) {
         // Fallback for too short packets
         std::string output;
@@ -299,9 +300,6 @@ void CN105Climate::hpPacketDebug(const uint8_t* packet, unsigned int length, con
     // Let's use generic names if unsure, but user wants semantic.
     if (packet[5] == 0x06) subLabel = ":Status";
 
-    char fullLabel[20];
-    snprintf(fullLabel, sizeof(fullLabel), "%s%s", label, subLabel);
-
     // Format strings
     std::string headerStr, dataStr, csStr;
     char byteBuf[4];
@@ -325,8 +323,9 @@ void CN105Climate::hpPacketDebug(const uint8_t* packet, unsigned int length, con
     csStr = byteBuf;
 
 // Output format: [LABEL:SubLabel ] HEADER -> [ PAYLOAD ] CS
-    ESP_LOGD(packetDirection, "%s|%s|->[%s](%s) <%s>",
-        log_prefix, headerStr.c_str(), dataStr.c_str(), csStr.c_str(), fullLabel);
+    ESP_LOGD(packetDirection, "%s|%s|->[%s](%s) <%s%s>",
+        log_prefix, headerStr.c_str(), dataStr.c_str(), csStr.c_str(), label, subLabel);
+#endif
 }
 
 

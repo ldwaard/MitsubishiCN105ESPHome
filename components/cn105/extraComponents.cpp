@@ -1,4 +1,5 @@
 #include "cn105.h"
+#include "heatpump_profile.h"
 #include <algorithm>
 #include <esphome/core/helpers.h>
 
@@ -24,6 +25,11 @@ void CN105Climate::set_vertical_vane_select(
         });
 
     this->vertical_vane_select_->setCallbackFunction([this](const char* setting) {
+        if (this->is_pac_passthrough()) {
+            ESP_LOGD("EVT", "Ignoring vane change: PAC passthrough is active");
+            this->profile_->update_extra_select_components(this->currentSettings);
+            return;
+        }
 
         ESP_LOGD("EVT", "vane.control() -> Demande un chgt de réglage de la vane: %s", setting);
 
@@ -58,6 +64,12 @@ void CN105Climate::set_horizontal_vane_select(
                              this->horizontal_vane_options_strings_);
 
     this->horizontal_vane_select_->setCallbackFunction([this](const char* setting) {
+        if (this->is_pac_passthrough()) {
+            ESP_LOGD("EVT", "Ignoring wide vane change: PAC passthrough is active");
+            this->profile_->update_extra_select_components(this->currentSettings);
+            return;
+        }
+
         ESP_LOGD("EVT", "wideVane.control() -> Demande un chgt de réglage de la wideVane: %s", setting);
 
         this->setWideVaneSetting(setting);
@@ -77,6 +89,14 @@ void CN105Climate::set_airflow_control_select(
         });
 
     this->airflow_control_select_->setCallbackFunction([this](const char* setting) {
+        if (this->is_pac_passthrough()) {
+            ESP_LOGD("EVT", "Ignoring airflow control change: PAC passthrough is active");
+            if (this->currentRunStates.airflow_control != nullptr) {
+                this->airflow_control_select_->publish_state(this->currentRunStates.airflow_control);
+            }
+            return;
+        }
+
         if (this->profile_->can_control_airflow()) {
             ESP_LOGD("EVT", "airFlow -> Request for change of airflow control setting: %s", setting);
 
@@ -148,6 +168,11 @@ void CN105Climate::set_functions_sensor(esphome::text_sensor::TextSensor* Functi
 void CN105Climate::set_functions_get_button(FunctionsButton* Button) {
     this->Functions_get_button_ = Button;
     this->Functions_get_button_->setCallbackFunction([this]() {
+        if (this->is_pac_passthrough()) {
+            ESP_LOGD(LOG_CYCLE_TAG, "Ignoring functions get button: PAC passthrough is active");
+            return;
+        }
+
         ESP_LOGI(LOG_CYCLE_TAG, "Retrieving functions");
 
         if (this->Functions_sensor_ != nullptr) {
@@ -164,6 +189,10 @@ void CN105Climate::set_functions_get_button(FunctionsButton* Button) {
 void CN105Climate::set_functions_set_button(FunctionsButton* Button) {
     this->Functions_set_button_ = Button;
     this->Functions_set_button_->setCallbackFunction([this]() {
+        if (this->is_pac_passthrough()) {
+            ESP_LOGD(LOG_CYCLE_TAG, "Ignoring functions set button: PAC passthrough is active");
+            return;
+        }
 
         if (!this->functions.isValid()) {
             if (this->Functions_sensor_ != nullptr) {
@@ -204,6 +233,14 @@ void CN105Climate::set_functions_set_value(FunctionsNumber* Number) {
 void CN105Climate::set_air_purifier_switch(HVACOptionSwitch* Switch) {
     this->air_purifier_switch_ = Switch;
     this->air_purifier_switch_->setCallbackFunction([this](bool state) {
+        if (this->is_pac_passthrough()) {
+            ESP_LOGD("control", "Ignoring air purifier switch change: PAC passthrough is active");
+            if (this->currentRunStates.air_purifier > -1) {
+                this->air_purifier_switch_->publish_state(this->currentRunStates.air_purifier);
+            }
+            return;
+        }
+
         this->wantedRunStates.air_purifier = state;
 
         this->wantedRunStates.hasChanged = true;
@@ -215,6 +252,14 @@ void CN105Climate::set_air_purifier_switch(HVACOptionSwitch* Switch) {
 void CN105Climate::set_night_mode_switch(HVACOptionSwitch* Switch) {
     this->night_mode_switch_ = Switch;
     this->night_mode_switch_->setCallbackFunction([this](bool state) {
+        if (this->is_pac_passthrough()) {
+            ESP_LOGD("control", "Ignoring night mode switch change: PAC passthrough is active");
+            if (this->currentRunStates.night_mode > -1) {
+                this->night_mode_switch_->publish_state(this->currentRunStates.night_mode);
+            }
+            return;
+        }
+
         this->wantedRunStates.night_mode = state;
 
         this->wantedRunStates.hasChanged = true;
@@ -226,6 +271,14 @@ void CN105Climate::set_night_mode_switch(HVACOptionSwitch* Switch) {
 void CN105Climate::set_circulator_switch(HVACOptionSwitch* Switch) { // only in HEAT mode? Manual says so, but it is possible to set the bit. The remote will not do it.
     this->circulator_switch_ = Switch;
     this->circulator_switch_->setCallbackFunction([this](bool state) {
+        if (this->is_pac_passthrough()) {
+            ESP_LOGD("control", "Ignoring circulator switch change: PAC passthrough is active");
+            if (this->currentRunStates.circulator > -1) {
+                this->circulator_switch_->publish_state(this->currentRunStates.circulator);
+            }
+            return;
+        }
+
         this->wantedRunStates.circulator = state;
 
         this->wantedRunStates.hasChanged = true;
@@ -262,6 +315,13 @@ void CN105Climate::set_remote_temp_source_info_sensor(esphome::text_sensor::Text
     }
 }
 
+void CN105Climate::set_ha_heartbeat_source(esphome::text_sensor::TextSensor* heartbeat_source) {
+    // Only the arrival of an update matters, not its value.
+    heartbeat_source->add_on_state_callback([this](const auto&) {
+        this->ha_heartbeat();
+    });
+}
+
 void CN105Climate::set_hp_uptime_connection_sensor(cn105::HpUpTimeConnectionSensor* hp_up_connection_sensor) {
     this->hp_uptime_connection_sensor_ = hp_up_connection_sensor;
 }
@@ -286,6 +346,11 @@ void CN105Climate::set_msz_a24na_setpoint_table(bool value) {
 void CN105Climate::add_hardware_setting(HardwareSettingSelect* setting) {
     this->hardware_settings_.push_back(setting);
     setting->setCallbackFunction([this, setting](const std::string& value, int int_value) {
+        if (this->is_pac_passthrough()) {
+            ESP_LOGD(LOG_FUNCTIONS_TAG, "Ignoring hardware setting change: PAC passthrough is active");
+            return;
+        }
+
         ESP_LOGI(LOG_FUNCTIONS_TAG, "Hardware setting change: Code %d -> %d (%s)", setting->get_code(), int_value, value.c_str());
 
         // Optimistic update done in component
@@ -296,4 +361,22 @@ void CN105Climate::add_hardware_setting(HardwareSettingSelect* setting) {
         // Trigger write to device
         this->isSetFunctions_ = true;
         });
+}
+
+void CN105Climate::set_pac_uart(uart::UARTComponent* pac_uart) {
+    this->pac_uart_ = pac_uart;
+}
+
+void CN105Climate::set_pac_passthrough_switch(PacPassthroughSwitch* passthrough_switch) {
+    this->pac_passthrough_switch_ = passthrough_switch;
+    // The initial state comes from the switch's restore_mode in its setup().
+    this->pac_passthrough_switch_->setCallbackFunction([this](bool state) {
+        this->pac_passthrough_forced_ = state;
+        ESP_LOGI("PAC", "Forced PAC passthrough %s", state ? "requested" : "released");
+    });
+}
+
+void CN105Climate::set_pac_passthrough_sensor(esphome::binary_sensor::BinarySensor* sensor) {
+    this->pac_passthrough_sensor_ = sensor;
+    sensor->publish_initial_state(false);
 }

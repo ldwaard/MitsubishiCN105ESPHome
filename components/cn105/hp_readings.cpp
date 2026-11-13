@@ -176,10 +176,22 @@ void CN105Climate::processCommand() {
     switch (this->parser_.command()) {
     case 0x61:  /* last update was successful */
         this->hpPacketDebug(this->parser_.raw(), this->parser_.frame_size(), LOG_ACK);
-        this->updateSuccess();
+        if (this->is_pac_passthrough()) {
+            this->relayHpFrameToPac();
+        } else {
+            this->updateSuccess();
+        }
         break;
     case 0x62:  /* packet contains data (room °C, settings, timer, status, or functions...)*/
-        this->getDataFromResponsePacket();
+        // keep the last good reply per request code
+        this->cacheInfoResponse();
+        if (this->is_pac_passthrough()) {
+            // bypass the scheduler so it doesn't fire its own next request
+            this->relayHpFrameToPac();
+            this->snoopPassthroughReply();
+        } else {
+            this->getDataFromResponsePacket();
+        }
         break;
     case 0x7a:  // Standard handshake
         if (this->profile_->accepts_handshake(this->parser_.command(), this->parser_.raw()[3])) {
@@ -225,6 +237,7 @@ void CN105Climate::onHandshakeEvent(cn105::HandshakeEvent event) {
         ESP_LOGI(LOG_CONN_TAG, "--> %s replied: installer session active (0x%02X)! <--",
             this->profile_->name(),
             this->parser_.command());
+        this->cacheInstallerConnectReply();
         break;
     case HandshakeEvent::UNEXPECTED_STANDARD:
         ESP_LOGW(LOG_CONN_TAG, "Ignoring stray standard handshake reply (0x7A) from %s: no CONNECT (0x5A) pending", this->profile_->name());

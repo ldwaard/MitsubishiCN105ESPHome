@@ -157,6 +157,21 @@ TEST(HeatPumpProfile, RemoteTemperatureEncodingAndInternalSensorFallback) {
     EXPECT_EQ(internal[8], 0x80);
 }
 
+TEST(HeatPumpProfile, RemoteTemperatureDecodeInvertsEncode) {
+    for (float t = 10.0f; t <= 31.5f; t += 0.5f) {
+        uint8_t packet[22]{};
+        HeatPumpProtocol::encode_remote_temperature(packet, t);
+        EXPECT_FLOAT_EQ(HeatPumpProtocol::decode_remote_temperature(packet), t);
+
+        // Encoding A only (encoding B byte left at zero)
+        packet[8] = 0;
+        EXPECT_FLOAT_EQ(HeatPumpProtocol::decode_remote_temperature(packet), t);
+    }
+    uint8_t internal[22]{};
+    HeatPumpProtocol::encode_remote_temperature(internal, 0);
+    EXPECT_FLOAT_EQ(HeatPumpProtocol::decode_remote_temperature(internal), 0);
+}
+
 TEST(HeatPumpProfile, RemoteTemperatureRoundTripsThroughRoomStatus) {
     using esphome::cn105::CommonProtocol;
     for (float t = 10.0f; t <= 31.5f; t += 0.5f) {

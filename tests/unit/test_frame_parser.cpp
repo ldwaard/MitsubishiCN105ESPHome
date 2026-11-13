@@ -167,6 +167,31 @@ TEST(FrameParser, ReusableAfterComplete) {
     EXPECT_EQ(parser.command(), 0x5A);
 }
 
+TEST(FrameParser, RawIncludesChecksumByte) {
+    FrameParser parser;
+    const uint8_t frame[] = {0xFC, 0x7A, 0x01, 0x30, 0x01, 0x00, 0x54};
+    for (uint8_t b : frame) parser.feed(b);
+
+    ASSERT_TRUE(parser.frame_complete());
+    ASSERT_EQ(parser.frame_size(), 7);
+    EXPECT_EQ(memcmp(parser.raw(), frame, sizeof(frame)), 0);
+}
+
+TEST(FrameParser, HeaderValidChecksBytesTwoAndThree) {
+    FrameParser parser;
+    const uint8_t valid_frame[] = {0xFC, 0x7A, 0x01, 0x30, 0x01, 0x00, 0x54};
+    for (uint8_t frame_byte : valid_frame) parser.feed(frame_byte);
+    ASSERT_TRUE(parser.frame_complete());
+    EXPECT_TRUE(parser.header_valid());
+
+    parser.reset();
+    const uint8_t wrong_header_frame[] = {0xFC, 0x7A, 0x02, 0x30, 0x01, 0x00, 0x53};
+    for (uint8_t frame_byte : wrong_header_frame) parser.feed(frame_byte);
+    ASSERT_TRUE(parser.frame_complete());
+    EXPECT_TRUE(parser.checksum_valid());
+    EXPECT_FALSE(parser.header_valid());
+}
+
 // ════════════════════════════════════════════════════════════════
 // Full poll cycle: 6 sequential frames from real capture
 // ════════════════════════════════════════════════════════════════

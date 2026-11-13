@@ -129,6 +129,8 @@ static const char* AUTO_SUB_MODE_MAP[7] = { "AUTO_OFF", "AUTO_COOL", "AUTO_HEAT"
 
 static const int TIMER_INCREMENT_MINUTES = 10;
 
+static const uint8_t REMOTE_TEMP = 0x07;
+
 static const uint8_t FUNCTIONS_SET_PART1 = 0x1F;
 static const uint8_t FUNCTIONS_GET_PART1 = 0x20;
 static const uint8_t FUNCTIONS_SET_PART2 = 0x21;
@@ -201,6 +203,15 @@ struct wantedHeatpumpSettings : heatpumpSettings {
         heatpumpSettings::resetSettings();
         hasChanged = false;
         hasBeenSent = false;
+    }
+
+    // Forget the last user-commanded values, for when HA no longer owns the
+    // heat pump state and re-sending them would override someone else's change.
+    void clearLastUserSettings() {
+        last_user_vane = nullptr;
+        last_user_vane_ms = 0;
+        last_user_temperature = -1.0f;
+        last_user_temperature_ms = 0;
     }
 
     // Trivial copy — all members are scalars
