@@ -63,11 +63,14 @@ bool heatpumpFunctions::setValue(int code, int value) {
     for (int i = 0; i < MAX_FUNCTION_CODE_COUNT; ++i) {
         if (getCode(raw[i]) == code) {
             raw[i] = ((code - 100) << 2) + value;
-            return true;
+            // return true;
+        } else {
+            raw[i] = 0;
         }
     }
 
-    return false;
+    // return false;
+    return true;
 }
 
 heatpumpFunctionCodes heatpumpFunctions::getAllCodes() {
