@@ -194,13 +194,6 @@ void CN105Climate::set_functions_set_button(FunctionsButton* Button) {
             return;
         }
 
-        if (!this->functions.isValid()) {
-            if (this->Functions_sensor_ != nullptr) {
-                this->Functions_sensor_->publish_state("Please get the functions first.");
-            }
-            return;
-        }
-
         ESP_LOGI(LOG_CYCLE_TAG, "Setting code %i to value %i", this->functions_code_, this->functions_value_);
         this->functions.setValue(this->functions_code_, this->functions_value_);
 
