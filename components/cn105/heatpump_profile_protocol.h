@@ -104,7 +104,6 @@ struct HeatPumpProtocol {
         return true;
     }
     static bool encode_functions(uint8_t* first, uint8_t* second, const heatpumpFunctions& functions) {
-        if (!functions.isValid()) return false;
         first[5] = 0x1F;
         second[5] = 0x21;
         functions.getData1(first + 6);

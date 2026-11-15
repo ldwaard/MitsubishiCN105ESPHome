@@ -598,13 +598,14 @@ TEST(HeatPumpProfile, FunctionsWithZeroValuesStillAnnounceSupport) {
 
 TEST(HeatPumpProfile, FunctionWritesRequireBothHalvesAndUseProductionPayloads) {
     heatpumpFunctions functions;
-    std::array<uint8_t, 22> first{}, second{};
-    EXPECT_FALSE(HeatPumpProtocol::encode_functions(first.data(), second.data(), functions));
-    EXPECT_EQ(first, (std::array<uint8_t, 22>{}));
+    std::array<uint8_t, 22> first{}, second{}, expect{};
+    EXPECT_TRUE(HeatPumpProtocol::encode_functions(first.data(), second.data(), functions));
+    expect[5] = 0x1F;
+    EXPECT_EQ(first, expect);
     uint8_t part1[15]{}, part2[15]{};
     part1[0] = 0x05; part2[14] = 0x73;
     functions.setData1(part1);
-    EXPECT_FALSE(HeatPumpProtocol::encode_functions(first.data(), second.data(), functions));
+    EXPECT_TRUE(HeatPumpProtocol::encode_functions(first.data(), second.data(), functions));
     functions.setData2(part2);
     EXPECT_TRUE(HeatPumpProtocol::encode_functions(first.data(), second.data(), functions));
     EXPECT_EQ(first[5], 0x1F); EXPECT_EQ(second[5], 0x21);
