@@ -14,6 +14,7 @@ using esphome::cn105::BusResponse;
 
 namespace {
 constexpr uint32_t kTimeoutMs = BusGate::kReplyTimeoutMs;
+constexpr uint32_t kControllerRetryMs = 637;
 constexpr uint32_t kStartMs = 10000;
 }
 
