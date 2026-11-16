@@ -53,6 +53,12 @@ add_executable(cn105_tests
     test_sub_mode.cpp
     test_idle_dual_band.cpp
     test_functions_restore.cpp
+    test_build_frame.cpp
+    test_ha_heartbeat.cpp
+    test_pac_passthrough_decision.cpp
+    test_pac_cache_index.cpp
+    test_passthrough_remote_temp.cpp
+    test_pac_reconnect_decision.cpp
 )
 
 target_link_libraries(cn105_tests

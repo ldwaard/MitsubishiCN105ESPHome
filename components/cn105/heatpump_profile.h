@@ -21,7 +21,7 @@ class HeatPumpProfile final : public Cn105ProtocolProfile {
     void decode_hvac_options() override;
     bool decode_functions(uint8_t code, const uint8_t* data, size_t length) override;
     void encode_control(uint8_t* packet) override;
-    void encode_remote_temperature(uint8_t* packet) override;
+    void encode_remote_temperature(uint8_t* packet, float temperature) override;
     void encode_run_states(uint8_t* packet) override;
     bool encode_functions(uint8_t* first, uint8_t* second, const heatpumpFunctions& functions) override;
     void apply_functions() override;
@@ -40,6 +40,7 @@ class HeatPumpProfile final : public Cn105ProtocolProfile {
     void set_vane_setting(const char* setting) override;
     void set_wide_vane_setting(const char* setting) override;
     void set_airflow_setting(const char* setting) override;
+    void update_extra_select_components(heatpumpSettings& settings) override;
     bool accepts_remote_temperature(float setting) override;
     bool can_control_airflow() const override;
     void update_action() override;
@@ -63,7 +64,6 @@ class HeatPumpProfile final : public Cn105ProtocolProfile {
     void handleSingleTargetInAutoOrDry(float requested);
     void checkVaneSettings(heatpumpSettings& settings, bool updateCurrentSettings = true);
     void checkWideVaneSettings(heatpumpSettings& settings, bool updateCurrentSettings = true);
-    void updateExtraSelectComponents(heatpumpSettings& settings);
     float decodeSettingsTemperature(const uint8_t* data);
     bool hasPendingUserTemperature() const;
     bool isWithinPostSendGrace() const;

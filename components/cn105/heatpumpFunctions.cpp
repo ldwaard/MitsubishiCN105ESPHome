@@ -43,6 +43,10 @@ bool CN105Climate::setFunctions(heatpumpFunctions const& functions) {
         return false;
     }
 
+    // The PAC cache's function settings replies are now stale; the follow-up read refills them.
+    this->invalidatePacCacheEntry(FUNCTIONS_GET_PART1);
+    this->invalidatePacCacheEntry(FUNCTIONS_GET_PART2);
+
     return true;
 }
 
@@ -68,7 +72,8 @@ void CN105Climate::openFunctionsRestoreWindow() {
 
 // Called with every settings reply (0x02), before it is applied.
 void CN105Climate::restoreStateAfterFunctions(const heatpumpSettings& received) {
-    const auto restore = this->functions_snapshot_.on_settings(received, this->wantedSettings.hasChanged, CUSTOM_MILLIS);
+    const auto restore = this->functions_snapshot_.on_settings(received,
+        this->wantedSettings.hasChanged || this->is_pac_passthrough(), CUSTOM_MILLIS);
     if (!restore.restore) {
         return;
     }

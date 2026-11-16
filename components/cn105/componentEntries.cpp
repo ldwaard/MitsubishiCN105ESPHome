@@ -60,8 +60,12 @@ void CN105Climate::setup() {
 void CN105Climate::loop() {
     // Bootstrap connection CN105 (UART + CONNECT) from loop()
     this->maybe_start_connection_();
-
+    // Collect expired requests before processInputPac() can claim the bus over them,
+    // otherwise the timeout is never counted.
     this->checkBusTimeout();
+    // always drain the PAC UART, even before the HP is connected
+    this->processInputPac();
+    this->updatePacPassthroughState();
 
     // Inform user about report_when_idle property if not configured, but only if compressor frequency sensor is configured.
     // Wait for UART to be ready so log messages appear via OTA update.
@@ -77,7 +81,8 @@ void CN105Climate::loop() {
 
     // As long as the connection is not successful, we do not launch ANY cycle/write (otherwise it short-circuits the delay).
     // We still continue to read/process the input in order to detect 0x7A/0x7B (connection success).
-    const bool can_talk_to_hp = this->isHeatpumpConnected();
+    // In PAC passthrough the upstream controller owns the bus: no polling, no writes.
+    const bool can_talk_to_hp = this->isHeatpumpConnected() && !this->is_pac_passthrough();
     // Only one request may wait for a reply at a time. While one does, nothing new is sent and
     // the pending work is retried on a later pass.
     const bool bus_idle = this->bus_gate_.is_idle(CUSTOM_MILLIS);
@@ -196,6 +201,11 @@ void CN105Climate::checkBusTimeout() {
     case cn105::BusRequestKind::SET_FUNCTIONS_PART2:
         ESP_LOGW(TAG, "No ack for setFunctions, re-reading settings");
         this->isGetFunctions_ = true;
+        break;
+    case cn105::BusRequestKind::PASSTHROUGH_FORWARD:
+        this->pac_unanswered_forward_count_++;
+        ESP_LOGW(TAG, "No heat pump reply to forwarded request (%u/%u)",
+            this->pac_unanswered_forward_count_, PAC_MAX_UNANSWERED_FORWARDS);
         break;
     default:
         ESP_LOGW(TAG, "No heat pump reply to request (kind %u)", static_cast<unsigned>(*expired_kind));

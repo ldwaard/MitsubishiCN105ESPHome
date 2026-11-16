@@ -357,7 +357,7 @@ void HeatPumpProfile::reconcile_power_mode(heatpumpSettings& settings, bool upda
 
 void HeatPumpProfile::checkVaneSettings(heatpumpSettings& settings, bool updateCurrentSettings) {
     if (this->shouldIgnoreIncomingVane(settings)) {
-        this->updateExtraSelectComponents(settings);
+        this->update_extra_select_components(settings);
         return;
     }
 
@@ -387,7 +387,7 @@ void HeatPumpProfile::checkVaneSettings(heatpumpSettings& settings, bool updateC
         ESP_LOGD(LOG_SETTINGS_TAG, "Swing mode is: %i", hp_.swing_mode);
     }
 
-    this->updateExtraSelectComponents(settings);
+    this->update_extra_select_components(settings);
 }
 
 void HeatPumpProfile::checkWideVaneSettings(heatpumpSettings& settings, bool updateCurrentSettings) {
@@ -427,10 +427,10 @@ void HeatPumpProfile::checkWideVaneSettings(heatpumpSettings& settings, bool upd
         hp_.van_orientation->publish_state(currentSettings.vane);
     }*/
 
-    this->updateExtraSelectComponents(settings);
+    this->update_extra_select_components(settings);
 }
 
-void HeatPumpProfile::updateExtraSelectComponents(heatpumpSettings& settings) {
+void HeatPumpProfile::update_extra_select_components(heatpumpSettings& settings) {
 
     if (hp_.vertical_vane_select_ != nullptr) {
         if (hp_.hasChanged(hp_.vertical_vane_select_->current_option(), settings.vane, "select vane")) {
@@ -1061,8 +1061,8 @@ void HeatPumpProfile::sanitize_setpoints() {
         hp_.getTargetTemperatureLow(), hp_.getTargetTemperatureHigh());
 }
 
-void HeatPumpProfile::encode_remote_temperature(uint8_t* packet) {
-    HeatPumpProtocol::encode_remote_temperature(packet, hp_.remoteTemperature_);
+void HeatPumpProfile::encode_remote_temperature(uint8_t* packet, float temperature) {
+    HeatPumpProtocol::encode_remote_temperature(packet, temperature);
 }
 
 void HeatPumpProfile::encode_run_states(uint8_t* packet) {
