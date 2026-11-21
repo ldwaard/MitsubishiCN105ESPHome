@@ -49,6 +49,12 @@ add_executable(cn105_tests
     test_connect_handshake.cpp
     test_bus_gate.cpp
     test_wanted_expiry.cpp
+    test_build_frame.cpp
+    test_ha_heartbeat.cpp
+    test_pac_passthrough_decision.cpp
+    test_pac_cache_index.cpp
+    test_passthrough_remote_temp.cpp
+    test_pac_passthrough_decision.cpp
 )
 
 target_link_libraries(cn105_tests

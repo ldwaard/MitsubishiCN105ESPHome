@@ -115,6 +115,40 @@ TEST(WantedHeatpumpSettingsTest, ResetSettings_IncludesFlags) {
     EXPECT_FLOAT_EQ(ws.temperature, -1.0f);
 }
 
+TEST(WantedHeatpumpSettingsTest, ResetSettings_KeepsLastUserSettings) {
+    wantedHeatpumpSettings ws{};
+    ws.last_user_vane = "SWING";
+    ws.last_user_vane_ms = 1000;
+    ws.last_user_temperature = 22.5f;
+    ws.last_user_temperature_ms = 2000;
+
+    ws.resetSettings();
+
+    EXPECT_STREQ(ws.last_user_vane, "SWING");
+    EXPECT_EQ(ws.last_user_vane_ms, 1000u);
+    EXPECT_FLOAT_EQ(ws.last_user_temperature, 22.5f);
+    EXPECT_EQ(ws.last_user_temperature_ms, 2000u);
+}
+
+TEST(WantedHeatpumpSettingsTest, ClearLastUserSettings_ResetsOnlyLastUserFields) {
+    wantedHeatpumpSettings ws{};
+    ws.hasChanged = true;
+    ws.power = "ON";
+    ws.last_user_vane = "SWING";
+    ws.last_user_vane_ms = 1000;
+    ws.last_user_temperature = 22.5f;
+    ws.last_user_temperature_ms = 2000;
+
+    ws.clearLastUserSettings();
+
+    EXPECT_EQ(ws.last_user_vane, nullptr);
+    EXPECT_EQ(ws.last_user_vane_ms, 0u);
+    EXPECT_FLOAT_EQ(ws.last_user_temperature, -1.0f);
+    EXPECT_EQ(ws.last_user_temperature_ms, 0u);
+    EXPECT_TRUE(ws.hasChanged);
+    EXPECT_STREQ(ws.power, "ON");
+}
+
 // ========================================================
 // heatpumpStatus tests
 // ========================================================

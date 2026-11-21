@@ -35,7 +35,7 @@ class Cn105ProtocolProfile {
     virtual bool decode_submode() = 0;
     virtual void decode_hvac_options() {}
     virtual void encode_control(uint8_t* packet) = 0;
-    virtual void encode_remote_temperature(uint8_t* packet) {}
+    virtual void encode_remote_temperature(uint8_t* packet, float temperature) {}
     virtual void encode_run_states(uint8_t* packet) {}
     virtual bool encode_functions(uint8_t* first, uint8_t* second, const heatpumpFunctions& functions) { return false; }
     virtual void apply_functions() {}
@@ -54,6 +54,8 @@ class Cn105ProtocolProfile {
     virtual void set_vane_setting(const char* setting) {}
     virtual void set_wide_vane_setting(const char* setting) {}
     virtual void set_airflow_setting(const char* setting) {}
+    // Republish the vane/wide vane selects from `settings` where they differ.
+    virtual void update_extra_select_components(heatpumpSettings& settings) {}
     virtual bool accepts_remote_temperature(float setting) { return allow_operation(ProfileFeature::REMOTE_TEMPERATURE); }
     virtual bool can_control_airflow() const { return false; }
     virtual void update_action() = 0;

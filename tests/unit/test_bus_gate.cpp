@@ -14,6 +14,7 @@ using esphome::cn105::BusResponse;
 
 namespace {
 constexpr uint32_t kTimeoutMs = BusGate::kReplyTimeoutMs;
+constexpr uint32_t kForwardTimeoutMs = BusGate::kForwardedRequestTimeoutMs;
 constexpr uint32_t kControllerRetryMs = 637;
 constexpr uint32_t kStartMs = 10000;
 }
@@ -84,6 +85,14 @@ TEST(BusGate, DataDoesNotCompleteAnAckRequest) {
     EXPECT_FALSE(gate.complete(BusResponse::DATA, kStartMs + 10).has_value());
     EXPECT_FALSE(gate.is_idle(kStartMs + 10));
     EXPECT_TRUE(gate.complete(BusResponse::ACK, kStartMs + 20).has_value());
+}
+
+TEST(BusGate, EitherAcceptsAckOrData) {
+    BusGate gate;
+    ASSERT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs));
+    EXPECT_TRUE(gate.complete(BusResponse::ACK, kStartMs + 10).has_value());
+    ASSERT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs + 20));
+    EXPECT_TRUE(gate.complete(BusResponse::DATA, kStartMs + 30).has_value());
 }
 
 TEST(BusGate, DuplicateReplyIsStray) {
@@ -232,6 +241,37 @@ TEST(BusGateScenario, PollCannotStartWhileASetIsPending) {
     EXPECT_FALSE(gate.begin(BusRequestKind::INFO_REQUEST, BusExpectedResponse::DATA, kStartMs + 500));
 }
 
+TEST(BusGateScenario, ControllerRequestsAreNotPipelinedInPassthrough) {
+    BusGate gate;
+    ASSERT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs));
+    EXPECT_FALSE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs + 20));
+}
+
+TEST(BusGateScenario, EspRemoteTemperatureWaitsForAForwardedRequest) {
+    BusGate gate;
+    ASSERT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs));
+    EXPECT_FALSE(gate.begin(BusRequestKind::SET_REMOTE_TEMPERATURE, BusExpectedResponse::ACK, kStartMs + 20));
+}
+
+TEST(BusGateScenario, ForwardedRequestWaitsForTheEspRemoteTemperatureAck) {
+    BusGate gate;
+    ASSERT_TRUE(gate.begin(BusRequestKind::SET_REMOTE_TEMPERATURE, BusExpectedResponse::ACK, kStartMs));
+    EXPECT_FALSE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs + 20));
+
+    const auto completed = gate.complete(BusResponse::ACK, kStartMs + 100);
+    ASSERT_TRUE(completed.has_value());
+    EXPECT_EQ(*completed, BusRequestKind::SET_REMOTE_TEMPERATURE);
+    EXPECT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs + 110));
+}
+
+TEST(BusGateScenario, PassthroughExitWaitsUntilIdle) {
+    BusGate gate;
+    ASSERT_TRUE(gate.begin(BusRequestKind::SET_REMOTE_TEMPERATURE, BusExpectedResponse::ACK, kStartMs));
+    EXPECT_FALSE(gate.is_idle(kStartMs + 50));
+    ASSERT_TRUE(gate.complete(BusResponse::ACK, kStartMs + 100).has_value());
+    EXPECT_TRUE(gate.is_idle(kStartMs + 100));
+}
+
 TEST(BusGateScenario, DisconnectDropsTheOutstandingRequest) {
     BusGate gate;
     ASSERT_TRUE(gate.begin(BusRequestKind::INFO_REQUEST, BusExpectedResponse::DATA, kStartMs));
@@ -247,6 +287,56 @@ TEST(BusGateScenario, DisconnectDropsTheOutstandingRequest) {
 TEST(BusGateTimeout, DefaultTimeoutIsUnchanged) {
     BusGate gate;
     ASSERT_TRUE(gate.begin(BusRequestKind::SET_SETTINGS, BusExpectedResponse::ACK, kStartMs));
+    EXPECT_FALSE(gate.is_idle(kStartMs + kForwardTimeoutMs));
     EXPECT_FALSE(gate.is_idle(kStartMs + kTimeoutMs - 1));
     EXPECT_TRUE(gate.is_idle(kStartMs + kTimeoutMs));
+}
+
+TEST(BusGateTimeout, ForwardTimeoutIsShorterThanTheDefaultAndTheControllerRetry) {
+    EXPECT_TRUE(kForwardTimeoutMs < kTimeoutMs);
+    EXPECT_TRUE(kForwardTimeoutMs < kControllerRetryMs);
+}
+
+TEST(BusGateTimeout, ShorterTimeoutExpiresEarly) {
+    BusGate gate;
+    ASSERT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs, kForwardTimeoutMs));
+    EXPECT_FALSE(gate.is_idle(kStartMs + kForwardTimeoutMs - 1));
+    EXPECT_FALSE(gate.expire(kStartMs + kForwardTimeoutMs - 1).has_value());
+    EXPECT_TRUE(gate.is_idle(kStartMs + kForwardTimeoutMs));
+    const auto expired = gate.expire(kStartMs + kForwardTimeoutMs);
+    ASSERT_TRUE(expired.has_value());
+    EXPECT_EQ(*expired, BusRequestKind::PASSTHROUGH_FORWARD);
+}
+
+TEST(BusGateTimeout, LostForwardedReplyDoesNotBlockTheControllerRetry) {
+    BusGate gate;
+    ASSERT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs, kForwardTimeoutMs));
+
+    const uint32_t retryMs = kStartMs + kControllerRetryMs;
+    EXPECT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, retryMs, kForwardTimeoutMs));
+}
+
+TEST(BusGateTimeout, ForwardedReplyAtMeasuredLatencyIsAccepted) {
+    constexpr uint32_t kMaxMeasuredReplyMs = 224;
+    BusGate gate;
+    ASSERT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs, kForwardTimeoutMs));
+    EXPECT_TRUE(gate.complete(BusResponse::DATA, kStartMs + kMaxMeasuredReplyMs).has_value());
+}
+
+TEST(BusGateTimeout, TimeoutOfOneRequestDoesNotLeakIntoTheNext) {
+    BusGate gate;
+    ASSERT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, kStartMs, kForwardTimeoutMs));
+    ASSERT_TRUE(gate.complete(BusResponse::ACK, kStartMs + 100).has_value());
+
+    ASSERT_TRUE(gate.begin(BusRequestKind::SET_SETTINGS, BusExpectedResponse::ACK, kStartMs + 200));
+    EXPECT_FALSE(gate.is_idle(kStartMs + 200 + kForwardTimeoutMs));
+    EXPECT_TRUE(gate.is_idle(kStartMs + 200 + kTimeoutMs));
+}
+
+TEST(BusGateTimeout, ShortTimeoutSurvivesMillisRollover) {
+    const uint32_t startBeforeWrapMs = UINT32_MAX - 100;
+    BusGate gate;
+    ASSERT_TRUE(gate.begin(BusRequestKind::PASSTHROUGH_FORWARD, BusExpectedResponse::EITHER, startBeforeWrapMs, kForwardTimeoutMs));
+    EXPECT_FALSE(gate.is_idle(startBeforeWrapMs + kForwardTimeoutMs - 1));
+    EXPECT_TRUE(gate.is_idle(startBeforeWrapMs + kForwardTimeoutMs));
 }

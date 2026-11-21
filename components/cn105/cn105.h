@@ -24,6 +24,7 @@
 #include "error_code_sensor.h"
 #include "remote_temp_source_info.h"
 #include "hvac_option_switch.h"
+#include "pac_passthrough_switch.h"
 #include "hardware_setting_select.h"
 #include "localization.h"
 #include "info_request.h"
@@ -123,6 +124,11 @@ namespace esphome {
         void set_remote_temperature_control_sensor(esphome::binary_sensor::BinarySensor* sensor);
         void set_remote_temperature_margin(float margin);
 
+        void set_pac_uart(uart::UARTComponent* pac_uart);
+        void set_pac_passthrough_switch(PacPassthroughSwitch* passthrough_switch);
+        void set_pac_disconnect_switch(PacPassthroughSwitch* disconnect_switch);
+        void set_pac_passthrough_sensor(esphome::binary_sensor::BinarySensor* sensor);
+
         //sensor::Sensor* compressor_frequency_sensor;
         binary_sensor::BinarySensor* iSee_sensor_ = nullptr;
         binary_sensor::BinarySensor* remote_temp_sensor_ = nullptr;
@@ -147,6 +153,9 @@ namespace esphome {
         uint32_t hardware_settings_interval_ms_{ 86400000 };  // Default 24h
         bool compressor_frequency_report_when_idle_{ false };
         bool compressor_frequency_report_when_idle_warning_shown_{ false };
+        PacPassthroughSwitch* pac_passthrough_switch_ = nullptr;
+        PacPassthroughSwitch* pac_disconnect_switch_ = nullptr;
+        binary_sensor::BinarySensor* pac_passthrough_sensor_ = nullptr;
 
         // The value of the code and value for the functions set.
         int functions_code_;
@@ -233,7 +242,7 @@ namespace esphome {
         // set_remote_temp(0) to switch back to the internal sensor.
         void set_remote_temperature(float);
         void sendRemoteTemperature();
-        void sendRemoteTemperaturePacket();  // Send packet only, without resetting watchdog
+        bool sendRemoteTemperaturePacket(float temperature);  // Send packet only, without resetting watchdog
         void sendWantedRunStates();
         float getDeadbandAdjustedTemperature(float remoteTemperature);
 
@@ -338,6 +347,14 @@ namespace esphome {
 #endif
 #endif
 
+        void set_pac_passthrough_timeout(uint32_t timeout_ms) { this->pac_passthrough_timeout_ms_ = timeout_ms; }
+        void set_pac_block_functions_set(bool block) { this->pac_block_functions_set_ = block; }
+        bool is_pac_passthrough() const { return this->pac_passthrough_active_; }
+
+        void set_ha_heartbeat_source(esphome::text_sensor::TextSensor* heartbeat_source);
+        void set_ha_heartbeat_timeout(uint32_t timeout_ms) { this->ha_heartbeat_timeout_ms_ = timeout_ms; }
+        // stamps the heartbeat; called by the source callback
+        void ha_heartbeat();
 
     protected:
         // HeatPump object using the underlying Arduino library.
@@ -351,10 +368,15 @@ namespace esphome {
             return this->parent_;
         }
 
+        //Accessor method for the PAC UART pointer
+        uart::UARTComponent* get_pac_uart_() {
+            return this->pac_uart_;
+        }
+
         bool processInput(void);
         void processDataPacket();
         void getErrorInfoFromResponsePacket();
-    void getDataFromResponsePacket();
+        void getDataFromResponsePacket();
         void getPowerFromResponsePacket(); //NET added
         void getSettingsFromResponsePacket();
         void getRoomTemperatureFromResponsePacket();
@@ -365,6 +387,31 @@ namespace esphome {
         void processCommand();
 
         uint8_t checkSum(uint8_t bytes[], int len);
+
+        bool processInputPac(void);
+        void processPacFrame();
+        void updatePacPassthroughState();
+        void enterPacPassthrough();
+        void exitPacPassthrough();
+        void dropPendingHaCommands();
+        void cacheInfoResponse();
+        void sendPacFrame(uint8_t cmd, const uint8_t* payload, uint8_t len);
+        void replyPacConnect();
+        void replyPacInstallerConnect();
+        void cacheInstallerConnectReply();
+        void replyCachedInfo(uint8_t code);
+        void invalidatePacCacheEntry(uint8_t code);
+        void replyPacSetAck();
+        bool forwardPacFrameToHp();
+        bool relayHpFrameToPac();
+        void snoopPassthroughReply();
+        void logPacSet(const uint8_t* payload, int len);
+        void publishPacPassthroughState();
+        void checkPacPassthroughHealth();
+        void sendRemoteTemperatureDuringPassthrough();
+        bool isBusQuietForPassthroughEntry();
+
+        bool isHomeAssistantAvailable(uint32_t now_ms) const;
 
         const char* getModeSetting();
         const char* getPowerSetting();
@@ -463,7 +510,6 @@ namespace esphome {
 
         unsigned long lastResponseMs;
 
-
         uint32_t remote_temp_timeout_;
         uint32_t remote_temp_keepalive_interval_ms_ = DEFAULT_REMOTE_TEMP_KEEPALIVE_INTERVAL_MS;
         bool remote_temp_keepalive_active_ = false;
@@ -476,6 +522,8 @@ namespace esphome {
         int baud_ = 0;
         int tx_pin_ = -1;
         int rx_pin_ = -1;
+
+        uart::UARTComponent* pac_uart_ = nullptr;
 
         //HardwareSerial* _HardSerial{ nullptr };
         unsigned long lastSend;
@@ -523,6 +571,7 @@ namespace esphome {
         bool restore_setpoints_ = false;
         void restore_setpoint_state_();
         void save_setpoint_state_();
+
         // Records the one request that is waiting for a heat pump reply. Every sender claims it
         // before writing and every reply is matched against it (see bus_gate.h).
         cn105::BusGate bus_gate_;
@@ -530,5 +579,38 @@ namespace esphome {
         void handleHeatpumpAck();
         void sendSecondFunctionsPacket();
         void checkBusTimeout();
+
+        cn105_protocol::FrameParser pac_parser_;
+
+        struct PacCacheEntry {
+            bool valid = false;
+            uint8_t len = 0;
+            uint8_t data[32] = {};
+            uint32_t ms = 0;
+        };
+        PacCacheEntry pac_cache_[cn105_protocol::kPacCacheSlotCount];
+
+        bool pac_passthrough_active_ = false;
+        bool pac_passthrough_forced_ = false;
+        bool pac_disconnect_forced_ = false;
+        uint32_t pac_passthrough_timeout_ms_ = 60000;
+        bool pac_block_functions_set_ = false;
+        bool ha_ok_ = false;
+        uint32_t ha_change_ms_ = 0;
+        // a controller function SET reached the heat pump; re-read functions on exit
+        bool pac_functions_changed_ = false;
+        uint8_t pac_unanswered_forward_count_ = 0;
+        static constexpr uint8_t INSTALLER_CONNECT_REPLY_MAX_LEN = 32;
+        uint8_t installer_connect_reply_[INSTALLER_CONNECT_REPLY_MAX_LEN] = {};
+        uint8_t installer_connect_reply_len_ = 0;
+        // last remote temperature (0x41/0x07) from the controller, 0 = internal sensor
+        float pac_remote_temp_ = 0;
+        uint32_t pac_remote_temp_ms_ = 0;
+        static constexpr uint8_t PAC_MAX_UNANSWERED_FORWARDS = 3;
+
+        // UINT32_MAX = heartbeat not required
+        uint32_t ha_heartbeat_timeout_ms_ = UINT32_MAX;
+        // UINT32_MAX ensures heartbeat isn't timed out on startup
+        uint32_t last_ha_heartbeat_ms_ = UINT32_MAX;
     };
 }

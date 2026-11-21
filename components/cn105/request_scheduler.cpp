@@ -83,9 +83,6 @@ void RequestScheduler::send_request(uint8_t code, CN105Climate* context) {
         const char* tag = req.log_tag ? req.log_tag : LOG_CYCLE_TAG;
         ESP_LOGD(tag, "Sending %s (0x%02X)", req.description, req.code);
 
-        req.awaiting = true;
-        req.last_request_time = CUSTOM_MILLIS;
-
         // Send the packet via callback
         if (send_callback_ && !send_callback_(req.code)) {
             // nothing went out: leave awaiting / last_request_time untouched

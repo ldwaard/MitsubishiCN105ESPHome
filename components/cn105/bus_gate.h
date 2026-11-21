@@ -9,7 +9,7 @@
 /// A reply that does not match the outstanding request is stray and must be ignored.
 /// The reply timeout is long enough that a request still outstanding after it is assumed
 /// lost: late replies are not handled. Measured heat pump replies take 214 to 224 ms against
-/// a 2000 ms timeout.
+/// a 2000 ms timeout (500 ms for passthrough forwards).
 ///
 /// Nothing here depends on ESPHome. Time is passed in, and unsigned subtraction keeps
 /// every age correct across millis() rollover.
@@ -27,6 +27,7 @@ enum class BusRequestKind : uint8_t {
     SET_REMOTE_TEMPERATURE,
     SET_FUNCTIONS_PART1,
     SET_FUNCTIONS_PART2,
+    PASSTHROUGH_FORWARD,
 };
 
 enum class BusExpectedResponse : uint8_t {
@@ -43,11 +44,15 @@ enum class BusResponse : uint8_t {
 class BusGate {
 public:
     static constexpr uint32_t kReplyTimeoutMs = 2000;
+    static constexpr uint32_t kForwardedRequestTimeoutMs = 500;
     /// "Any reply of the expected type" (ACKs carry no identity).
     static constexpr uint16_t kAnyCode = UINT16_MAX;
 
     /// Claim the bus for one request.
     /// @param timeout_ms  How long to wait for the reply before treating the request as lost.
+    ///                    Passthrough forwards use kForwardedRequestTimeoutMs, which is shorter than
+    ///                    the controller's own retry interval (about 650 ms), so a retry after a lost
+    ///                    reply finds the bus free instead of being rejected as pipelined.
     /// @return false when another request is still waiting for its reply.
     bool begin(BusRequestKind kind, BusExpectedResponse expected_response, uint32_t now_ms,
                uint32_t timeout_ms = kReplyTimeoutMs, uint16_t expected_code = kAnyCode) {

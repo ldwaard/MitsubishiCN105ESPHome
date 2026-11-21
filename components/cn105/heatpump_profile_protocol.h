@@ -202,6 +202,11 @@ struct HeatPumpProtocol {
             cn105_protocol::encode_remote_temperature(temperature, packet[7], packet[8]);
         } else packet[8] = 0x80;
     }
+    /// Inverse of encode_remote_temperature(); 0 means "use the internal sensor".
+    static float decode_remote_temperature(const uint8_t* packet) {
+        if (!(packet[6] & 0x01)) return 0;
+        return cn105_protocol::decode_remote_temperature(packet[7], packet[8]);
+    }
     static climate::ClimateMode resolve_mode(const char* power, const char* reported,
                                              climate::ClimateMode mode, bool supports_dual) {
         if (power == nullptr) return mode;
